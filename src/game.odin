@@ -39,6 +39,9 @@ Game :: struct {
 	cfg:              Calendar_Config,
 	clock:            Clock,
 	people:           [dynamic]Person,
+	bushes:           []Bush, // parallel to cells; only meaningful where the cell is a Bush
+	bush_growth_per_hour: f32,
+	bushes_updated_hours: f64,
 }
 
 pick_weighted :: proc(weights: [$E]int) -> E {
@@ -64,6 +67,12 @@ game_init :: proc(g: ^Game, size: int) {
 	for i in 0 ..< len(g.cells) {
 		g.cells[i] = pick_weighted(TERRAIN_WEIGHTS)
 	}
+	g.bushes = make([]Bush, size * size)
+	g.bush_growth_per_hour = BUSH_GROWTH_PER_HOUR
+	g.bushes_updated_hours = g.clock.hours
+	for t, i in g.cells {
+		if t == .Bush {g.bushes[i] = roll_bush()}
+	}
 	spawn_person(g, .Male)
 	spawn_person(g, .Female)
 	g.cursor_x = size / 2
@@ -78,6 +87,7 @@ game_init :: proc(g: ^Game, size: int) {
 game_destroy :: proc(g: ^Game) {
 	delete(g.cells)
 	delete(g.people)
+	delete(g.bushes)
 }
 
 in_bounds :: proc(g: ^Game, x, y: int) -> bool {

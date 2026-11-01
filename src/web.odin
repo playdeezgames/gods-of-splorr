@@ -68,6 +68,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	free_all(context.temp_allocator)
 	advance_clock(&game.clock, game.cfg, min(dt, 0.25))
 	update_people(&game)
+	update_bushes(&game)
 	draw()
 	return true
 }
@@ -85,6 +86,10 @@ draw :: proc() {
 			}
 			tile := TERRAIN_TILES[t]
 			draw_tile(tile.col, tile.row, px, py, CELL)
+			if b, ok := bush_at(&game, x, y); ok { // berry bar: how full this bush is
+				fill_rect(px + 4, py + CELL - 8, CELL - 8, 4, 0, 0, 0, 0.6)
+				fill_rect(px + 4, py + CELL - 8, (CELL - 8) * b.food / b.max_food, 4, 0.9, 0.15, 0.25, 1)
+			}
 		}
 	}
 
@@ -109,6 +114,9 @@ draw :: proc() {
 	buf: [96]byte
 	t := terrain_at(&game, game.cursor_x, game.cursor_y)
 	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
+	if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.0f", game.cursor_x, game.cursor_y, b.food, b.max_food)
+	}
 	if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
 		s = fmt.bprintf(buf[:], "(%d, %d)  %s  -  Person (%s, melanin %.2f)", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t], SEX_NAMES[game.people[i].sex], game.people[i].melanin)
 	}
