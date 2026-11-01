@@ -131,7 +131,7 @@ draw :: proc() {
 	t := terrain_at(&game, game.cursor_x, game.cursor_y)
 	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
 	if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.0f", game.cursor_x, game.cursor_y, b.food, b.max_food)
+		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.1f", game.cursor_x, game.cursor_y, b.food, b.max_food)
 	}
 	if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
 		p := game.people[i]
