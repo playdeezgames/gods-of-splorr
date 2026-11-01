@@ -26,6 +26,7 @@ foreign host {
 	draw_tile_tinted :: proc(col, row: i32, x, y, size: f32, r, g, b: f32) ---
 	set_info :: proc(ptr: [^]byte, n: i32) ---
 	set_clock :: proc(ptr: [^]byte, n: i32) ---
+	set_layout :: proc(info_right, clock_bottom: bool) ---
 }
 
 // Urizen sheet coordinates (col, row).
@@ -49,6 +50,8 @@ PERSON_TILES := [Sex]Tile {
 }
 
 CORPSE_TILE :: Tile{201, 0}
+SKELETON_TILE :: Tile{4, 38} // a pile of bones
+SKELETON_COLOR :: [3]f32{0.88, 0.85, 0.75}
 CORPSE_SHADE :: 0.55 // corpses are their owner's skin colour, dimmed
 
 MINI_COLORS := [Terrain][3]f32 {
@@ -78,6 +81,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	update_bushes(&game)
 	update_ground(&game)
 	update_ground_items(&game)
+	update_corpses(&game)
 	update_vitals(&game)
 	draw()
 	return true
@@ -111,13 +115,17 @@ draw :: proc() {
 			if other.x == it.x && other.y == it.y {slot += 1}
 		}
 		ix, iy := f32(vx * CELL + CELL - 12 - slot * 10), f32(vy * CELL + CELL - 12)
+		f := ground_freshness(&game, it)
+		fade := 0.4 + 0.6 * f // things darken as they rot
 		switch it.item {
 		case .Stone: fill_rect(ix, iy, 8, 8, 0.7, 0.7, 0.75, 1)
-		case .Fiber: fill_rect(ix, iy, 8, 8, 0.75, 0.85, 0.35, 1)
-		case .Stick: fill_rect(ix, iy, 8, 8, 0.6, 0.4, 0.2, 1)
-		case .Twine: fill_rect(ix, iy, 8, 8, 0.9, 0.75, 0.5, 1)
-		case .Food:
-			f := ground_food_freshness(&game, it) // berries go from red to brown as they spoil
+		case .Sharp_Stone: fill_rect(ix, iy, 8, 8, 0.85, 0.95, 1, 1)
+		case .Short_Stick: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.35 * fade, 1)
+		case .Knife: fill_rect(ix, iy, 8, 8, 0.95, 0.95, 0.4, 1)
+		case .Fiber: fill_rect(ix, iy, 8, 8, 0.75 * fade, 0.85 * fade, 0.35 * fade, 1)
+		case .Stick: fill_rect(ix, iy, 8, 8, 0.6 * fade, 0.4 * fade, 0.2 * fade, 1)
+		case .Twine: fill_rect(ix, iy, 8, 8, 0.9 * fade, 0.75 * fade, 0.5 * fade, 1)
+		case .Food: // berries go from red to brown
 			fill_rect(ix, iy, 8, 8, 0.35 + 0.55 * f, 0.25 - 0.1 * f, 0.1 + 0.15 * f, 1)
 		case .None:
 		}
@@ -126,8 +134,13 @@ draw :: proc() {
 	for c in game.corpses {
 		vx, vy := c.x - game.cam_x, c.y - game.cam_y
 		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
-		col := skin_color(c.melanin) * CORPSE_SHADE
-		draw_tile_tinted(CORPSE_TILE.col, CORPSE_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL, col.r, col.g, col.b)
+		if c.skeleton {
+			col := SKELETON_COLOR * (1 - 0.4 * corpse_rot_fraction(&game, c)) // bones dim as they crumble
+			draw_tile_tinted(SKELETON_TILE.col, SKELETON_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL, col.r, col.g, col.b)
+		} else {
+			col := skin_color(c.melanin) * CORPSE_SHADE * (1 - 0.4 * corpse_rot_fraction(&game, c)) // darkens as it rots
+			draw_tile_tinted(CORPSE_TILE.col, CORPSE_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL, col.r, col.g, col.b)
+		}
 	}
 	for p in game.people {
 		vx, vy := p.x - game.cam_x, p.y - game.cam_y
@@ -143,6 +156,9 @@ draw :: proc() {
 			case .Fiber: fill_rect(hx, hy, 8, 8, 0.75, 0.85, 0.35, 1)
 			case .Stick: fill_rect(hx, hy, 8, 8, 0.6, 0.4, 0.2, 1)
 			case .Twine: fill_rect(hx, hy, 8, 8, 0.9, 0.75, 0.5, 1)
+			case .Sharp_Stone: fill_rect(hx, hy, 8, 8, 0.85, 0.95, 1, 1)
+			case .Short_Stick: fill_rect(hx, hy, 8, 8, 0.8, 0.6, 0.35, 1)
+			case .Knife: fill_rect(hx, hy, 8, 8, 0.95, 0.95, 0.4, 1)
 			}
 		}
 	}
@@ -158,8 +174,8 @@ draw :: proc() {
 
 	draw_minimap()
 
-	buf, buf2: [200]byte
-	gbuf: [80]byte
+	buf, buf2: [300]byte
+	gbuf: [200]byte
 	t := terrain_at(&game, game.cursor_x, game.cursor_y)
 	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
 	if sticks, ok := sticks_at(&game, game.cursor_x, game.cursor_y); ok {
@@ -178,15 +194,18 @@ draw :: proc() {
 		p := game.people[i]
 		s = fmt.bprintf(
 			buf[:],
-			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f  Stomach %.0f  Energy %.0f  Sleeps %.1fh  Hands %d/%d",
+			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f\nStomach %.0f  Energy %.0f\nSleeps %.1fh  Hands %d/%d\nForaging %.0f  Crafting %.0f",
 			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
-			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count,
+			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count, p.foraging, p.crafting,
 		)
 	} else if i := corpse_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
 		c := game.corpses[i]
-		s = fmt.bprintf(buf[:], "(%d, %d)  Corpse (%s, melanin %.2f)", game.cursor_x, game.cursor_y, SEX_NAMES[c.sex], c.melanin)
+		kind := "Skeleton" if c.skeleton else "Corpse"
+		s = fmt.bprintf(buf[:], "(%d, %d)  %s (%s, melanin %.2f)  -  %.0f%% rotted", game.cursor_x, game.cursor_y, kind, SEX_NAMES[c.sex], c.melanin, 100 * corpse_rot_fraction(&game, c))
 	}
 	set_info(raw_data(s), i32(len(s)))
+	// Keep the panels out of the cursor's way: info on the opposite side, clock on the opposite edge.
+	set_layout(game.cursor_x - game.cam_x < VIEW_W / 2, game.cursor_y - game.cam_y < VIEW_H / 2)
 
 	d := date_of(game.clock, game.cfg)
 	speed := "paused"
@@ -222,7 +241,8 @@ draw_minimap :: proc() {
 		}
 	}
 	for c in game.corpses {
-		fill_rect(ox + f32(c.x * MINI_CELL), oy + f32(c.y * MINI_CELL), MINI_CELL, MINI_CELL, 0.4, 0.4, 0.4, 1)
+		shade: f32 = 0.7 if c.skeleton else 0.4
+		fill_rect(ox + f32(c.x * MINI_CELL), oy + f32(c.y * MINI_CELL), MINI_CELL, MINI_CELL, shade, shade, shade, 1)
 	}
 	for p in game.people {
 		c := skin_color(p.melanin)

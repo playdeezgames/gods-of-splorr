@@ -19,6 +19,9 @@ Item :: enum u8 {
 	Fiber,
 	Stick,
 	Twine,
+	Sharp_Stone,
+	Short_Stick,
+	Knife,
 }
 
 DEFAULT_HANDS :: 2
@@ -34,6 +37,8 @@ Person :: struct {
 	sleep_hours:     f32, // hours of sleep needed per day, 4 to 12
 	energy:          f32, // drains while awake; at 0 the person falls asleep until it is full
 	asleep:          bool,
+	foraging:        f32, // skill 0 to 100: chance of success when gathering food, fiber, sticks, stone
+	crafting:        f32, // skill 0 to 100: chance of success when crafting
 	hand_count:      int, // how many hands, so how many items can be carried; one item per hand
 	hands:           [MAX_HANDS]Item,
 	next_move_hours: f64, // game clock time of the next step
@@ -43,6 +48,20 @@ MAX_HEALTH :: 100.0
 MAX_SATIETY :: 100.0
 MAX_STOMACH :: 100.0
 MAX_ENERGY :: 100.0
+
+MAX_SKILL :: 100.0
+SKILL_MIN_SUCCESS :: 0.25 // an unskilled person still succeeds this often; a master always does
+
+// Skills spread 0..100 around 50 (triangular), like the sleep need.
+random_skill :: proc() -> f32 {
+	return (rand.float32() + rand.float32()) / 2 * MAX_SKILL
+}
+
+// Roll against a skill: chance of success runs from 25% at skill 0 to 100% at skill 100.
+skill_succeeds :: proc(skill: f32) -> bool {
+	chance := SKILL_MIN_SUCCESS + (1 - SKILL_MIN_SUCCESS) * clamp(skill, 0, MAX_SKILL) / MAX_SKILL
+	return rand.float32() < chance
+}
 
 // Each person needs a certain amount of sleep per 24-hour day, from 4 to 12 hours and 8 on
 // average. They stay awake for the rest of the day: energy drains over (24 - need) awake
@@ -81,6 +100,33 @@ Corpse :: struct {
 	sex:        Sex,
 	melanin:    f32,
 	died_hours: f64,
+	skeleton:   bool, // once the flesh has rotted away only bones are left
+	bones_hours: f64, // game clock time it became a skeleton
+}
+
+// A corpse rots to a skeleton after this many game hours; the skeleton then lasts much longer
+// before it rots away too.
+CORPSE_ROT_HOURS :: 120.0 // 5 days
+SKELETON_ROT_HOURS :: 1200.0 // 50 days
+
+// 0 when fresh, 1 when this stage (corpse or skeleton) has run its course.
+corpse_rot_fraction :: proc(g: ^Game, c: Corpse) -> f32 {
+	if c.skeleton {return clamp(f32((g.clock.hours - c.bones_hours) / SKELETON_ROT_HOURS), 0, 1)}
+	return clamp(f32((g.clock.hours - c.died_hours) / CORPSE_ROT_HOURS), 0, 1)
+}
+
+// Corpses become skeletons, and skeletons crumble away.
+update_corpses :: proc(g: ^Game) {
+	for i := len(g.corpses) - 1; i >= 0; i -= 1 {
+		c := &g.corpses[i]
+		if !c.skeleton && g.clock.hours - c.died_hours >= CORPSE_ROT_HOURS {
+			c.skeleton = true
+			c.bones_hours = c.died_hours + CORPSE_ROT_HOURS
+		}
+		if c.skeleton && g.clock.hours - c.bones_hours >= SKELETON_ROT_HOURS {
+			ordered_remove(&g.corpses, i)
+		}
+	}
 }
 
 // Everyone is a shade of brown: melanin runs from light tan (0) to deep brown (1).
@@ -125,7 +171,7 @@ spawn_person :: proc(g: ^Game, sex: Sex) -> bool {
 	for _ in 0 ..< 10000 {
 		x, y := rand.int_max(g.width), rand.int_max(g.height)
 		if can_enter(g, x, y) {
-			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
+			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
 			return true
 		}
 	}
@@ -141,7 +187,7 @@ update_people :: proc(g: ^Game) {
 				p.next_move_hours = next_step_time(p.next_move_hours)
 				continue
 			}
-			if !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !craft_twine(&p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
+			if !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x
@@ -247,6 +293,7 @@ gather_food :: proc(g: ^Game, p: ^Person, bx, by: int) -> bool {
 	if hand < 0 {return false}
 	bush := &g.bushes[by * g.width + bx]
 	if bush.food < 1 {return false}
+	if !skill_succeeds(p.foraging) {return true} // fumbled it; nothing taken
 	bush.food -= 1
 	p.hands[hand] = .Food
 	return true

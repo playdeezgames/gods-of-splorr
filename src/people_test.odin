@@ -177,6 +177,7 @@ gather_setup :: proc(g: ^Game, food: f32) {
 	g.bushes[5 * g.width + 5] = Bush{food = food, max_food = 20}
 	g.people[0].x, g.people[0].y = 4, 5
 	g.people[0].hands = {}
+	g.people[0].foraging = MAX_SKILL
 }
 
 @(test)
@@ -454,4 +455,41 @@ people_are_created_with_a_sleep_need :: proc(t: ^testing.T) {
 	for p in g.people {
 		testing.expect(t, p.sleep_hours >= MIN_SLEEP_HOURS && p.sleep_hours <= MAX_SLEEP_HOURS, "in range")
 	}
+}
+
+@(test)
+corpses_rot_to_skeletons_which_rot_away_more_slowly :: proc(t: ^testing.T) {
+	testing.expect(t, SKELETON_ROT_HOURS > CORPSE_ROT_HOURS, "skeletons last longer")
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	start := g.clock.hours
+	append(&g.corpses, Corpse{x = 1, y = 1, sex = .Male, melanin = 0.5, died_hours = start})
+	g.clock.hours = start + CORPSE_ROT_HOURS / 2
+	update_corpses(&g)
+	testing.expect(t, !g.corpses[0].skeleton, "still a corpse")
+	testing.expect(t, abs(corpse_rot_fraction(&g, g.corpses[0]) - 0.5) < 1e-4, "halfway rotted")
+	g.clock.hours = start + CORPSE_ROT_HOURS + 1
+	update_corpses(&g)
+	testing.expect(t, g.corpses[0].skeleton, "rotted to a skeleton")
+	testing.expect(t, corpse_rot_fraction(&g, g.corpses[0]) < 0.01, "a fresh skeleton")
+	testing.expect(t, corpse_at(&g, 1, 1) == 0, "bones stay where they fell")
+	g.clock.hours = start + CORPSE_ROT_HOURS + SKELETON_ROT_HOURS / 2
+	update_corpses(&g)
+	testing.expect_value(t, len(g.corpses), 1)
+	testing.expect(t, abs(corpse_rot_fraction(&g, g.corpses[0]) - 0.5) < 1e-3, "skeleton halfway gone")
+	g.clock.hours = start + CORPSE_ROT_HOURS + SKELETON_ROT_HOURS + 1
+	update_corpses(&g)
+	testing.expect_value(t, len(g.corpses), 0)
+}
+
+@(test)
+a_long_jump_takes_a_corpse_straight_through_to_nothing :: proc(t: ^testing.T) {
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	append(&g.corpses, Corpse{x = 1, y = 1, died_hours = g.clock.hours})
+	g.clock.hours += CORPSE_ROT_HOURS + SKELETON_ROT_HOURS + 10
+	update_corpses(&g)
+	testing.expect_value(t, len(g.corpses), 0)
 }
