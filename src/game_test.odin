@@ -68,7 +68,7 @@ screen_sized_world_works :: proc(t: ^testing.T) {
 	defer game_destroy(&g)
 	testing.expect_value(t, len(g.cells), VIEW_W * VIEW_H)
 	testing.expect_value(t, len(g.bushes), VIEW_W * VIEW_H)
-	testing.expect_value(t, len(g.people), 2)
+	testing.expect_value(t, len(g.people), START_PEOPLE)
 	testing.expect(t, in_bounds(&g, VIEW_W - 1, VIEW_H - 1) && !in_bounds(&g, VIEW_W, 0) && !in_bounds(&g, 0, VIEW_H), "bounds")
 	move_cursor(&g, 100, 100)
 	testing.expect_value(t, g.cursor_x, VIEW_W - 1)

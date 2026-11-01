@@ -27,6 +27,9 @@ Person :: struct {
 	health:          f32, // 0 means dead
 	satiety:         f32, // drains when the stomach is empty; at 0 health drains
 	stomach:         f32, // food waiting to be digested into satiety
+	sleep_hours:     f32, // hours of sleep needed per day, 4 to 12
+	energy:          f32, // drains while awake; at 0 the person falls asleep until it is full
+	asleep:          bool,
 	hand_count:      int, // how many hands, so how many items can be carried; one item per hand
 	hands:           [MAX_HANDS]Item,
 	next_move_hours: f64, // game clock time of the next step
@@ -35,12 +38,36 @@ Person :: struct {
 MAX_HEALTH :: 100.0
 MAX_SATIETY :: 100.0
 MAX_STOMACH :: 100.0
+MAX_ENERGY :: 100.0
+
+// Each person needs a certain amount of sleep per 24-hour day, from 4 to 12 hours and 8 on
+// average. They stay awake for the rest of the day: energy drains over (24 - need) awake
+// hours, which puts them to sleep, and a full night of `sleep_hours` wakes them.
+MIN_SLEEP_HOURS :: 4.0
+DEFAULT_SLEEP_HOURS :: 8.0
+MAX_SLEEP_HOURS :: 12.0
+
+// Triangular spread over 4..12 centred on 8: most people are near average, extremes are rare.
+random_sleep_hours :: proc() -> f32 {
+	return DEFAULT_SLEEP_HOURS + (rand.float32() + rand.float32() - 1) * (MAX_SLEEP_HOURS - DEFAULT_SLEEP_HOURS)
+}
+
+energy_drain_per_hour :: proc(p: Person) -> f32 {
+	return MAX_ENERGY / (HOURS_PER_DAY - clamp(p.sleep_hours, MIN_SLEEP_HOURS, MAX_SLEEP_HOURS))
+}
+
+energy_recover_per_hour :: proc(p: Person) -> f32 {
+	return MAX_ENERGY / clamp(p.sleep_hours, MIN_SLEEP_HOURS, MAX_SLEEP_HOURS)
+}
 
 // Per game hour. With these, a full stomach digests in 20 hours, an empty one
 // loses satiety over about 2.8 days, and starving takes health down over about 4 days.
 DIGEST_PER_HOUR :: 5.0 // stomach lost, and satiety gained, while stomach > 0
 HUNGER_PER_HOUR :: 1.5 // satiety lost while stomach == 0
 STARVE_PER_HOUR :: 1.0 // health lost while satiety == 0
+
+FOOD_STOMACH :: 20.0 // stomach gained from eating one food item
+EAT_BELOW_STOMACH :: 25.0 // a person with food in hand eats once their stomach drops under this
 
 START_STOMACH :: 30.0
 START_SATIETY :: 50.0
@@ -94,7 +121,7 @@ spawn_person :: proc(g: ^Game, sex: Sex) -> bool {
 	for _ in 0 ..< 10000 {
 		x, y := rand.int_max(g.width), rand.int_max(g.height)
 		if can_enter(g, x, y) {
-			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
+			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
 			return true
 		}
 	}
@@ -106,7 +133,11 @@ DIRS := [4][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
 update_people :: proc(g: ^Game) {
 	for &p in g.people {
 		for g.clock.hours >= p.next_move_hours {
-			if !gather_adjacent(g, &p) {
+			if p.asleep { // sleepers do nothing
+				p.next_move_hours = next_step_time(p.next_move_hours)
+				continue
+			}
+			if !eat_when_hungry(&p) && !gather_adjacent(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x
@@ -122,6 +153,7 @@ update_people :: proc(g: ^Game) {
 // drains satiety, and empty satiety drains health. Each stage hands any leftover time
 // to the next, so a step that crosses a boundary is exact at any speed.
 step_vitals :: proc(p: ^Person, dt: f32) {
+	step_energy(p, dt)
 	left := dt
 	if p.stomach > 0 {
 		t := min(left, p.stomach / DIGEST_PER_HOUR)
@@ -139,6 +171,29 @@ step_vitals :: proc(p: ^Person, dt: f32) {
 	}
 	if left > 0 && p.satiety == 0 {
 		p.health = max(p.health - STARVE_PER_HOUR * left, 0)
+	}
+}
+
+// Awake people lose energy and fall asleep at 0; sleepers regain it and wake when full.
+// Like the nutrition chain, a step that crosses a boundary hands its leftover time on.
+step_energy :: proc(p: ^Person, dt: f32) {
+	left := dt
+	for left > 0 {
+		if p.asleep {
+			t := min(left, (MAX_ENERGY - p.energy) / energy_recover_per_hour(p^))
+			p.energy = min(p.energy + energy_recover_per_hour(p^) * t, MAX_ENERGY)
+			left -= t
+			if left <= 0 {break}
+			p.energy = MAX_ENERGY
+			p.asleep = false
+		} else {
+			t := min(left, p.energy / energy_drain_per_hour(p^))
+			p.energy = max(p.energy - energy_drain_per_hour(p^) * t, 0)
+			left -= t
+			if left <= 0 {break}
+			p.energy = 0
+			p.asleep = true
+		}
 	}
 }
 
@@ -199,4 +254,21 @@ gather_adjacent :: proc(g: ^Game, p: ^Person) -> bool {
 		if gather_food(g, p, p.x + d.x, p.y + d.y) {return true}
 	}
 	return false
+}
+
+// Eat one food item from a hand: it empties the hand and fills the stomach (capped).
+eat_food :: proc(p: ^Person) -> bool {
+	if p.stomach >= MAX_STOMACH {return false}
+	for i in 0 ..< p.hand_count {
+		if p.hands[i] == .Food {
+			p.hands[i] = .None
+			p.stomach = min(p.stomach + FOOD_STOMACH, MAX_STOMACH)
+			return true
+		}
+	}
+	return false
+}
+
+eat_when_hungry :: proc(p: ^Person) -> bool {
+	return p.stomach < EAT_BELOW_STOMACH && eat_food(p)
 }

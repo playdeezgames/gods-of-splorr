@@ -5,12 +5,12 @@ import "core:math/rand"
 import "core:testing"
 
 @(test)
-two_people_start_on_grass :: proc(t: ^testing.T) {
+people_start_on_grass_with_both_sexes :: proc(t: ^testing.T) {
 	rand.reset(3)
 	g: Game
 	game_init(&g, WORLD_SIZE)
 	defer game_destroy(&g)
-	testing.expect_value(t, len(g.people), 2)
+	testing.expect_value(t, len(g.people), START_PEOPLE)
 	testing.expect_value(t, g.people[0].sex, Sex.Male)
 	testing.expect_value(t, g.people[1].sex, Sex.Female)
 	for p in g.people {
@@ -25,7 +25,8 @@ people_only_ever_walk_on_grass :: proc(t: ^testing.T) {
 	g: Game
 	game_init(&g, WORLD_SIZE)
 	defer game_destroy(&g)
-	start := [2][2]int{{g.people[0].x, g.people[0].y}, {g.people[1].x, g.people[1].y}}
+	start: [START_PEOPLE][2]int
+	for p, i in g.people {start[i] = {p.x, p.y}}
 	moved := false
 	for _ in 0 ..< 5000 {
 		g.clock.hours += 0.1
@@ -159,7 +160,7 @@ starved_person_becomes_a_corpse :: proc(t: ^testing.T) {
 	x, y, mel := g.people[0].x, g.people[0].y, g.people[0].melanin
 	g.clock.hours += 2
 	update_vitals(&g)
-	testing.expect_value(t, len(g.people), 1)
+	testing.expect_value(t, len(g.people), START_PEOPLE - 1)
 	testing.expect_value(t, len(g.corpses), 1)
 	testing.expect_value(t, g.people[0].sex, Sex.Female)
 	c := g.corpses[0]
@@ -240,4 +241,217 @@ people_next_to_bushes_gather_on_their_own :: proc(t: ^testing.T) {
 	update_people(&g)
 	testing.expect_value(t, held_count(g.people[0]), 1)
 	testing.expect_value(t, g.people[0].x, 4) // gathering used the action, so no step
+}
+
+@(test)
+eating_empties_a_hand_and_fills_the_stomach :: proc(t: ^testing.T) {
+	p := Person{stomach = 10, hand_count = 2}
+	testing.expect(t, !eat_food(&p), "nothing to eat")
+	p.hands[1] = .Food
+	testing.expect(t, eat_food(&p), "eats")
+	testing.expect_value(t, p.stomach, f32(10 + FOOD_STOMACH))
+	testing.expect_value(t, p.hands[1], Item.None)
+	testing.expect_value(t, held_count(p), 0)
+}
+
+@(test)
+eating_is_capped_and_refused_when_full :: proc(t: ^testing.T) {
+	p := Person{stomach = 90, hand_count = 2}
+	p.hands[0] = .Food
+	testing.expect(t, eat_food(&p), "eats")
+	testing.expect_value(t, p.stomach, f32(MAX_STOMACH))
+	p.hands[0] = .Food
+	testing.expect(t, !eat_food(&p), "full stomach refuses")
+	testing.expect_value(t, p.hands[0], Item.Food)
+}
+
+@(test)
+hungry_people_eat_on_their_own_before_gathering :: proc(t: ^testing.T) {
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	gather_setup(&g, 10)
+	p := &g.people[0]
+	p.hands[0] = .Food
+	p.stomach = 5
+	p.next_move_hours = g.clock.hours
+	g.people[1].next_move_hours = g.clock.hours + 1000
+	g.clock.hours += 0.01
+	update_people(&g)
+	testing.expect_value(t, p.stomach, f32(5 + FOOD_STOMACH))
+	testing.expect_value(t, held_count(p^), 0)
+	testing.expect_value(t, g.bushes[5 * g.width + 5].food, f32(10)) // ate instead of gathering
+}
+
+@(test)
+well_fed_people_keep_their_food :: proc(t: ^testing.T) {
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	gather_setup(&g, 10)
+	p := &g.people[0]
+	p.hands[0] = .Food
+	p.stomach = 60
+	p.next_move_hours = g.clock.hours
+	g.people[1].next_move_hours = g.clock.hours + 1000
+	g.clock.hours += 0.01
+	update_people(&g)
+	testing.expect_value(t, p.stomach, f32(60))
+	testing.expect_value(t, held_count(p^), 2) // kept it and gathered a second
+}
+
+@(test)
+a_forager_can_stay_alive_indefinitely :: proc(t: ^testing.T) {
+	rand.reset(21)
+	g: Game
+	game_init_rect(&g, VIEW_W, VIEW_H)
+	defer game_destroy(&g)
+	// plenty of bushes so the walker keeps finding food
+	for i in 0 ..< len(g.cells) {
+		g.cells[i] = .Grass if i % 3 != 0 else .Bush
+		if g.cells[i] == .Bush {g.bushes[i] = Bush{food = 20, max_food = 20}}
+	}
+	for i := len(g.people) - 1; i >= 0; i -= 1 {
+		if g.cells[g.people[i].y * g.width + g.people[i].x] != .Grass {ordered_remove(&g.people, i)}
+	}
+	for _ in 0 ..< 3000 { // ~ 20 game days at 10 minute ticks
+		g.clock.hours += 0.1
+		update_people(&g)
+		update_bushes(&g)
+		update_vitals(&g)
+	}
+	testing.expect_value(t, len(g.corpses), 0)
+}
+
+@(test)
+energy_drains_awake_and_sleep_follows :: proc(t: ^testing.T) {
+	p := Person{energy = MAX_ENERGY, sleep_hours = DEFAULT_SLEEP_HOURS}
+	step_energy(&p, 8)
+	testing.expect(t, abs(p.energy - 50) < 1e-3, "half gone after 8 awake hours")
+	testing.expect(t, !p.asleep, "still awake")
+	step_energy(&p, 8)
+	testing.expect_value(t, p.energy, f32(0))
+	step_energy(&p, 0.001)
+	testing.expect(t, p.asleep, "asleep at zero energy")
+}
+
+@(test)
+sleeping_recovers_and_wakes_when_full :: proc(t: ^testing.T) {
+	p := Person{energy = 0, asleep = true, sleep_hours = DEFAULT_SLEEP_HOURS}
+	step_energy(&p, 4)
+	testing.expect(t, abs(p.energy - 50) < 1e-3 && p.asleep, "half rested")
+	step_energy(&p, 4)
+	testing.expect_value(t, p.energy, f32(MAX_ENERGY))
+	step_energy(&p, 1)
+	testing.expect(t, !p.asleep, "awake once full")
+	testing.expect(t, p.energy < MAX_ENERGY, "and spending energy again")
+}
+
+@(test)
+a_day_is_two_thirds_awake_and_one_third_asleep :: proc(t: ^testing.T) {
+	p := Person{energy = MAX_ENERGY, sleep_hours = DEFAULT_SLEEP_HOURS}
+	slept, total := 0, 0
+	for _ in 0 ..< 24 * 60 * 10 { // ten days in one-minute steps
+		step_energy(&p, 1.0 / 60)
+		total += 1
+		if p.asleep {slept += 1}
+	}
+	frac := f32(slept) / f32(total)
+	testing.expect(t, abs(frac - 1.0 / 3) < 0.01, "about a third asleep")
+	// one huge step lands in the same place as many small ones
+	a := Person{energy = MAX_ENERGY, sleep_hours = DEFAULT_SLEEP_HOURS}
+	step_energy(&a, 100)
+	b := Person{energy = MAX_ENERGY, sleep_hours = DEFAULT_SLEEP_HOURS}
+	for _ in 0 ..< 10000 {
+		step_energy(&b, 0.01)
+	}
+	testing.expect(t, a.asleep == b.asleep && abs(a.energy - b.energy) < 0.2, "step size does not matter")
+}
+
+@(test)
+sleepers_do_not_act :: proc(t: ^testing.T) {
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	gather_setup(&g, 10)
+	p := &g.people[0]
+	p.asleep, p.energy = true, 10
+	p.next_move_hours = g.clock.hours
+	g.people[1].next_move_hours = g.clock.hours + 1000
+	g.clock.hours += 0.01
+	update_people(&g)
+	testing.expect_value(t, held_count(p^), 0)
+	testing.expect_value(t, g.bushes[5 * g.width + 5].food, f32(10))
+	p.asleep = false
+	p.next_move_hours = g.clock.hours
+	g.clock.hours += 0.01
+	update_people(&g)
+	testing.expect_value(t, held_count(p^), 1)
+}
+
+@(test)
+new_people_start_rested_and_sleep_after_16_hours :: proc(t: ^testing.T) {
+	rand.reset(8)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	testing.expect_value(t, g.people[0].energy, f32(MAX_ENERGY))
+	g.people[0].sleep_hours = DEFAULT_SLEEP_HOURS
+	for _ in 0 ..< 159 { // 15.9 hours
+		g.clock.hours += 0.1
+		update_vitals(&g)
+	}
+	testing.expect(t, !g.people[0].asleep, "awake just before 16 hours")
+	g.clock.hours += 0.2
+	update_vitals(&g)
+	testing.expect(t, g.people[0].asleep, "asleep after 16 hours")
+}
+
+@(test)
+sleep_need_ranges_from_4_to_12_averaging_8 :: proc(t: ^testing.T) {
+	rand.reset(13)
+	lo, hi, sum: f32 = 100, 0, 0
+	n := 20000
+	for _ in 0 ..< n {
+		h := random_sleep_hours()
+		testing.expect(t, h >= MIN_SLEEP_HOURS && h <= MAX_SLEEP_HOURS, "in range")
+		lo, hi, sum = min(lo, h), max(hi, h), sum + h
+	}
+	testing.expect(t, abs(sum / f32(n) - 8) < 0.1, "averages 8 hours")
+	testing.expect(t, lo < 4.3 && hi > 11.7, "short and long sleepers both occur")
+}
+
+@(test)
+each_person_sleeps_as_much_as_they_need :: proc(t: ^testing.T) {
+	for need in ([?]f32{4, 6, 8, 10, 12}) {
+		p := Person{energy = MAX_ENERGY, sleep_hours = need}
+		awake := 24 - need
+		step_energy(&p, awake - 0.01)
+		testing.expect(t, !p.asleep, "awake until the day's waking hours are used")
+		step_energy(&p, 0.02)
+		testing.expect(t, p.asleep, "asleep once they are")
+		step_energy(&p, need - 0.04)
+		testing.expect(t, p.asleep, "still asleep just before they have slept enough")
+		step_energy(&p, 0.05)
+		testing.expect(t, !p.asleep, "awake after sleeping their need")
+		// over ten days the asleep fraction is need / 24
+		q := Person{energy = MAX_ENERGY, sleep_hours = need}
+		slept, total := 0, 24 * 60 * 10
+		for _ in 0 ..< total {
+			step_energy(&q, 1.0 / 60)
+			if q.asleep {slept += 1}
+		}
+		testing.expect(t, abs(f32(slept) / f32(total) - need / 24) < 0.01, "asleep fraction matches need")
+	}
+}
+
+@(test)
+people_are_created_with_a_sleep_need :: proc(t: ^testing.T) {
+	rand.reset(17)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	for p in g.people {
+		testing.expect(t, p.sleep_hours >= MIN_SLEEP_HOURS && p.sleep_hours <= MAX_SLEEP_HOURS, "in range")
+	}
 }

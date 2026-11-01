@@ -3,6 +3,7 @@ package gods
 import "core:math/rand"
 
 // World sizes planned: 32, 64, 128. Only 32 is in use so far.
+START_PEOPLE :: 5
 WORLD_SIZE :: 32
 
 VIEW_W :: 20
@@ -82,8 +83,11 @@ game_init_rect :: proc(g: ^Game, width, height: int) {
 	for t, i in g.cells {
 		if t == .Bush {g.bushes[i] = roll_bush()}
 	}
-	spawn_person(g, .Male)
+	spawn_person(g, .Male) // one of each sex guaranteed, the rest random
 	spawn_person(g, .Female)
+	for _ in 2 ..< START_PEOPLE {
+		spawn_person(g, rand.int_max(2) == 0 ? .Male : .Female)
+	}
 	g.cursor_x = width / 2
 	g.cursor_y = height / 2
 	if len(g.people) > 0 { // start by looking at the first person

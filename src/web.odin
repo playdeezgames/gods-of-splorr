@@ -107,6 +107,7 @@ draw :: proc() {
 		vx, vy := p.x - game.cam_x, p.y - game.cam_y
 		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
 		tile, c := PERSON_TILES[p.sex], skin_color(p.melanin)
+		if p.asleep {c *= 0.5} // sleepers are dimmed
 		draw_tile_tinted(tile.col, tile.row, f32(vx * CELL), f32(vy * CELL), CELL, c.r, c.g, c.b)
 		for h in 0 ..< p.hand_count { // a red berry for each hand that holds food
 			if p.hands[h] == .Food {
@@ -126,7 +127,7 @@ draw :: proc() {
 
 	draw_minimap()
 
-	buf: [160]byte
+	buf: [200]byte
 	t := terrain_at(&game, game.cursor_x, game.cursor_y)
 	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
 	if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
@@ -136,8 +137,9 @@ draw :: proc() {
 		p := game.people[i]
 		s = fmt.bprintf(
 			buf[:],
-			"(%d, %d)  Person (%s, melanin %.2f)  Health %.0f  Satiety %.0f  Stomach %.0f  Hands %d/%d",
-			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, p.health, p.satiety, p.stomach, held_count(p), p.hand_count,
+			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f  Stomach %.0f  Energy %.0f  Sleeps %.1fh  Hands %d/%d",
+			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
+			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count,
 		)
 	} else if i := corpse_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
 		c := game.corpses[i]

@@ -7,8 +7,9 @@
 <style>
   html, body { margin: 0; height: 100%; background: #050a05; color: #cfe8cf; font-family: monospace; }
   body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
-  canvas { width: min(100vw, calc((100vh - 70px) * 4 / 3)); image-rendering: pixelated; touch-action: none; cursor: crosshair; }
-  #info, #clock { font-size: 20px; height: 24px; }
+  canvas { width: min(100vw, calc((100vh - 100px) * 4 / 3)); image-rendering: pixelated; touch-action: none; cursor: crosshair; }
+  #info, #clock { font-size: 20px; height: 24px; white-space: pre; text-align: center; }
+  #info { height: 48px; }
   #clock { color: #f0d890; }
   #help { font-size: 12px; opacity: .6; }
 </style>
