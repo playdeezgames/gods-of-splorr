@@ -94,7 +94,14 @@ const game = () => memory.exports;
 // &mpy=<months per year, rounded up to a multiple of 4>&lat=<degrees>
 const q = new URLSearchParams(location.search);
 const num = (k, d) => (q.has(k) && !isNaN(Number(q.get(k)))) ? Number(q.get(k)) : d;
-ready.then(() => game().configure(num("day", 0), num("dpm", 0), num("mpy", 0), num("lat", NaN)));
+// ?world=screen gives a screen-sized world (20x15) for testing; ?world=N gives an N-by-N one.
+ready.then(() => {
+  if (q.has("world")) {
+    const n = q.get("world") === "screen" ? 0 : Number(q.get("world")) || 0;
+    game().new_world(n, n === 0 ? 0 : n);
+  }
+  game().configure(num("day", 0), num("dpm", 0), num("mpy", 0), num("lat", NaN));
+});
 
 // Keyboard (e.key before e.code; see vault Gotchas)
 const KEYS = {

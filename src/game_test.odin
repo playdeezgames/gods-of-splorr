@@ -59,3 +59,27 @@ hover_and_pan :: proc(t: ^testing.T) {
 	pan_camera(&g, -100, -100)
 	testing.expect(t, g.cursor_x < VIEW_W && g.cursor_y < VIEW_H, "cursor stays on screen")
 }
+
+@(test)
+screen_sized_world_works :: proc(t: ^testing.T) {
+	rand.reset(4)
+	g: Game
+	game_init_rect(&g, VIEW_W, VIEW_H)
+	defer game_destroy(&g)
+	testing.expect_value(t, len(g.cells), VIEW_W * VIEW_H)
+	testing.expect_value(t, len(g.bushes), VIEW_W * VIEW_H)
+	testing.expect_value(t, len(g.people), 2)
+	testing.expect(t, in_bounds(&g, VIEW_W - 1, VIEW_H - 1) && !in_bounds(&g, VIEW_W, 0) && !in_bounds(&g, 0, VIEW_H), "bounds")
+	move_cursor(&g, 100, 100)
+	testing.expect_value(t, g.cursor_x, VIEW_W - 1)
+	testing.expect_value(t, g.cursor_y, VIEW_H - 1)
+	testing.expect_value(t, g.cam_x, 0)
+	testing.expect_value(t, g.cam_y, 0)
+	// a non-square world indexes by its own width
+	game_destroy(&g)
+	g = {}
+	game_init_rect(&g, 7, 3)
+	testing.expect_value(t, len(g.cells), 21)
+	g.cells[2 * 7 + 6] = .Tree
+	testing.expect_value(t, terrain_at(&g, 6, 2), Terrain.Tree)
+}

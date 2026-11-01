@@ -30,7 +30,8 @@ TERRAIN_WEIGHTS := [Terrain]int {
 }
 
 Game :: struct {
-	size:             int,
+	width:            int,
+	height:           int,
 	cells:            []Terrain,
 	cursor_x:         int,
 	cursor_y:         int,
@@ -40,6 +41,8 @@ Game :: struct {
 	clock:            Clock,
 	people:           [dynamic]Person,
 	bushes:           []Bush, // parallel to cells; only meaningful where the cell is a Bush
+	corpses:           [dynamic]Corpse,
+	vitals_updated_hours: f64,
 	bush_growth_per_hour: f32,
 	bushes_updated_hours: f64,
 }
@@ -60,23 +63,29 @@ pick_weighted :: proc(weights: [$E]int) -> E {
 }
 
 game_init :: proc(g: ^Game, size: int) {
-	g.size = size
+	game_init_rect(g, size, size)
+}
+
+// Worlds need not be square; a screen-sized one (VIEW_W by VIEW_H) is handy for testing.
+game_init_rect :: proc(g: ^Game, width, height: int) {
+	g.width, g.height = width, height
 	g.cfg = normalize_config(DEFAULT_CALENDAR)
 	g.clock = clock_init()
-	g.cells = make([]Terrain, size * size)
+	g.cells = make([]Terrain, width * height)
 	for i in 0 ..< len(g.cells) {
 		g.cells[i] = pick_weighted(TERRAIN_WEIGHTS)
 	}
-	g.bushes = make([]Bush, size * size)
+	g.bushes = make([]Bush, width * height)
 	g.bush_growth_per_hour = BUSH_GROWTH_PER_HOUR
 	g.bushes_updated_hours = g.clock.hours
+	g.vitals_updated_hours = g.clock.hours
 	for t, i in g.cells {
 		if t == .Bush {g.bushes[i] = roll_bush()}
 	}
 	spawn_person(g, .Male)
 	spawn_person(g, .Female)
-	g.cursor_x = size / 2
-	g.cursor_y = size / 2
+	g.cursor_x = width / 2
+	g.cursor_y = height / 2
 	if len(g.people) > 0 { // start by looking at the first person
 		g.cursor_x, g.cursor_y = g.people[0].x, g.people[0].y
 	}
@@ -87,20 +96,21 @@ game_init :: proc(g: ^Game, size: int) {
 game_destroy :: proc(g: ^Game) {
 	delete(g.cells)
 	delete(g.people)
+	delete(g.corpses)
 	delete(g.bushes)
 }
 
 in_bounds :: proc(g: ^Game, x, y: int) -> bool {
-	return x >= 0 && y >= 0 && x < g.size && y < g.size
+	return x >= 0 && y >= 0 && x < g.width && y < g.height
 }
 
 terrain_at :: proc(g: ^Game, x, y: int) -> Terrain {
-	return g.cells[y * g.size + x]
+	return g.cells[y * g.width + x]
 }
 
 clamp_camera :: proc(g: ^Game) {
-	g.cam_x = clamp(g.cam_x, 0, max(g.size - VIEW_W, 0))
-	g.cam_y = clamp(g.cam_y, 0, max(g.size - VIEW_H, 0))
+	g.cam_x = clamp(g.cam_x, 0, max(g.width - VIEW_W, 0))
+	g.cam_y = clamp(g.cam_y, 0, max(g.height - VIEW_H, 0))
 }
 
 // Scroll the camera the minimum amount that keeps the cursor on screen.
@@ -113,8 +123,8 @@ follow_cursor :: proc(g: ^Game) {
 }
 
 move_cursor :: proc(g: ^Game, dx, dy: int) {
-	g.cursor_x = clamp(g.cursor_x + dx, 0, g.size - 1)
-	g.cursor_y = clamp(g.cursor_y + dy, 0, g.size - 1)
+	g.cursor_x = clamp(g.cursor_x + dx, 0, g.width - 1)
+	g.cursor_y = clamp(g.cursor_y + dy, 0, g.height - 1)
 	follow_cursor(g)
 }
 

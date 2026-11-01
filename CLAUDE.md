@@ -8,7 +8,7 @@ Early prototype: a 32x32 map viewer with a day/night and calendar clock. `./buil
 
 - `src/game.odin`: world generation (weighted terrain), cursor and camera. `src/time.odin`: clock, calendar, latitude-driven temperature and sun, all pure. Both have native `*_test.odin` files (`#+build !js`).
 - `src/web.odin` (`#+build js`): drawing and exports; `web/index.html`: canvas shim and all input (keys, mouse, gamepad), which calls exported `on_*` procs.
-- `runWasm` is async: call `memory.exports` only inside `.then`. Calendar parameters come from the URL: `?day=<real seconds per game day>&dpm=&mpy=&lat=` (default 1440 s/day, 30 days, 12 months, latitude 40; months per year is rounded up to a multiple of 4).
+- `runWasm` is async: call `memory.exports` only inside `.then`. Calendar parameters come from the URL: `?day=<real seconds per game day>&dpm=&mpy=&lat=` (default 1440 s/day, 30 days, 12 months, latitude 40; months per year is rounded up to a multiple of 4). `?world=screen` gives a screen-sized 20x15 world for testing (`?world=N` an N-by-N one); worlds are `width` by `height`, not necessarily square.
 
 ## What this is
 

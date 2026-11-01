@@ -46,6 +46,9 @@ PERSON_TILES := [Sex]Tile {
 	.Female = {112, 46},
 }
 
+CORPSE_TILE :: Tile{201, 0}
+CORPSE_SHADE :: 0.55 // corpses are their owner's skin colour, dimmed
+
 MINI_COLORS := [Terrain][3]f32 {
 	.Grass = {0.10, 0.35, 0.10},
 	.Tree  = {0.15, 0.80, 0.15},
@@ -69,6 +72,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	advance_clock(&game.clock, game.cfg, min(dt, 0.25))
 	update_people(&game)
 	update_bushes(&game)
+	update_vitals(&game)
 	draw()
 	return true
 }
@@ -93,11 +97,22 @@ draw :: proc() {
 		}
 	}
 
+	for c in game.corpses {
+		vx, vy := c.x - game.cam_x, c.y - game.cam_y
+		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
+		col := skin_color(c.melanin) * CORPSE_SHADE
+		draw_tile_tinted(CORPSE_TILE.col, CORPSE_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL, col.r, col.g, col.b)
+	}
 	for p in game.people {
 		vx, vy := p.x - game.cam_x, p.y - game.cam_y
 		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
 		tile, c := PERSON_TILES[p.sex], skin_color(p.melanin)
 		draw_tile_tinted(tile.col, tile.row, f32(vx * CELL), f32(vy * CELL), CELL, c.r, c.g, c.b)
+		for h in 0 ..< p.hand_count { // a red berry for each hand that holds food
+			if p.hands[h] == .Food {
+				fill_rect(f32(vx * CELL + 2 + h * 12), f32(vy * CELL + CELL - 10), 8, 8, 0.9, 0.15, 0.25, 1)
+			}
+		}
 	}
 
 	tint := ambient_overlay(sun_sin(game.clock, game.cfg))
@@ -111,14 +126,22 @@ draw :: proc() {
 
 	draw_minimap()
 
-	buf: [96]byte
+	buf: [160]byte
 	t := terrain_at(&game, game.cursor_x, game.cursor_y)
 	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
 	if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.0f", game.cursor_x, game.cursor_y, b.food, b.max_food)
 	}
 	if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
-		s = fmt.bprintf(buf[:], "(%d, %d)  %s  -  Person (%s, melanin %.2f)", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t], SEX_NAMES[game.people[i].sex], game.people[i].melanin)
+		p := game.people[i]
+		s = fmt.bprintf(
+			buf[:],
+			"(%d, %d)  Person (%s, melanin %.2f)  Health %.0f  Satiety %.0f  Stomach %.0f  Hands %d/%d",
+			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, p.health, p.satiety, p.stomach, held_count(p), p.hand_count,
+		)
+	} else if i := corpse_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
+		c := game.corpses[i]
+		s = fmt.bprintf(buf[:], "(%d, %d)  Corpse (%s, melanin %.2f)", game.cursor_x, game.cursor_y, SEX_NAMES[c.sex], c.melanin)
 	}
 	set_info(raw_data(s), i32(len(s)))
 
@@ -139,15 +162,24 @@ draw :: proc() {
 }
 
 draw_minimap :: proc() {
-	w := f32(game.size * MINI_CELL)
-	ox := f32(CANVAS_W) - w - MINI_MARGIN
+	w := f32(game.width * MINI_CELL)
+	h := f32(game.height * MINI_CELL)
+	// Stay out of the cursor's way: the minimap sits on the opposite side of the screen.
+	cursor_on_right := game.cursor_x - game.cam_x >= VIEW_W / 2
+	ox := f32(MINI_MARGIN)
+	if !cursor_on_right {
+		ox = f32(CANVAS_W) - w - MINI_MARGIN
+	}
 	oy := f32(MINI_MARGIN)
-	fill_rect(ox - 2, oy - 2, w + 4, w + 4, 0, 0, 0, 0.8)
-	for y in 0 ..< game.size {
-		for x in 0 ..< game.size {
+	fill_rect(ox - 2, oy - 2, w + 4, h + 4, 0, 0, 0, 0.8)
+	for y in 0 ..< game.height {
+		for x in 0 ..< game.width {
 			c := MINI_COLORS[terrain_at(&game, x, y)]
 			fill_rect(ox + f32(x * MINI_CELL), oy + f32(y * MINI_CELL), MINI_CELL, MINI_CELL, c.r, c.g, c.b, 1)
 		}
+	}
+	for c in game.corpses {
+		fill_rect(ox + f32(c.x * MINI_CELL), oy + f32(c.y * MINI_CELL), MINI_CELL, MINI_CELL, 0.4, 0.4, 0.4, 1)
 	}
 	for p in game.people {
 		c := skin_color(p.melanin)
@@ -212,4 +244,17 @@ configure :: proc "c" (day_real_seconds: f64, days_per_month, months_per_year: i
 	if months_per_year > 0 {c.months_per_year = int(months_per_year)}
 	if !math.is_nan(latitude) {c.latitude = latitude}
 	game.cfg = normalize_config(c)
+}
+
+// Replace the world with a fresh one. A world of 0 by 0 means "screen sized".
+@(export)
+new_world :: proc "c" (width, height: i32) {
+	context = ctx
+	w, h := int(width), int(height)
+	if w <= 0 || h <= 0 {
+		w, h = VIEW_W, VIEW_H
+	}
+	game_destroy(&game)
+	game = {}
+	game_init_rect(&game, w, h)
 }
