@@ -14,6 +14,8 @@ Terrain :: enum u8 {
 	Tree,
 	Bush,
 	Pond,
+	Stone_Field,
+	Dirt,
 }
 
 TERRAIN_NAMES := [Terrain]string {
@@ -21,6 +23,8 @@ TERRAIN_NAMES := [Terrain]string {
 	.Tree  = "Tree",
 	.Bush  = "Bush",
 	.Pond  = "Pond",
+	.Stone_Field = "Stone field",
+	.Dirt  = "Dirt",
 }
 
 TERRAIN_WEIGHTS := [Terrain]int {
@@ -28,6 +32,8 @@ TERRAIN_WEIGHTS := [Terrain]int {
 	.Tree  = 10,
 	.Bush  = 5,
 	.Pond  = 1,
+	.Stone_Field = 3, // between pond and bush
+	.Dirt  = 0, // only appears when a stone field is used up
 }
 
 Game :: struct {
@@ -46,6 +52,11 @@ Game :: struct {
 	vitals_updated_hours: f64,
 	bush_growth_per_hour: f32,
 	bushes_updated_hours: f64,
+	sticks:           []f32, // parallel to cells; sticks left where the cell is a Tree
+	fiber:            []f32, // parallel to cells; plant fiber left where the cell is Grass
+	stone:            []f32, // parallel to cells; stone left where the cell is a Stone_Field
+	terrain_updated_hours: f64,
+	ground_items:     [dynamic]Ground_Item, // things people have dropped
 }
 
 pick_weighted :: proc(weights: [$E]int) -> E {
@@ -80,8 +91,15 @@ game_init_rect :: proc(g: ^Game, width, height: int) {
 	g.bush_growth_per_hour = BUSH_GROWTH_PER_HOUR
 	g.bushes_updated_hours = g.clock.hours
 	g.vitals_updated_hours = g.clock.hours
+	g.terrain_updated_hours = g.clock.hours
+	g.stone = make([]f32, width * height)
+	g.fiber = make([]f32, width * height)
+	g.sticks = make([]f32, width * height)
 	for t, i in g.cells {
 		if t == .Bush {g.bushes[i] = roll_bush()}
+		if t == .Stone_Field {g.stone[i] = STONE_FIELD_AMOUNT}
+		if t == .Grass {g.fiber[i] = FIBER_PER_GRASS}
+		if t == .Tree {g.sticks[i] = STICKS_PER_TREE}
 	}
 	spawn_person(g, .Male) // one of each sex guaranteed, the rest random
 	spawn_person(g, .Female)
@@ -102,6 +120,10 @@ game_destroy :: proc(g: ^Game) {
 	delete(g.people)
 	delete(g.corpses)
 	delete(g.bushes)
+	delete(g.stone)
+	delete(g.fiber)
+	delete(g.sticks)
+	delete(g.ground_items)
 }
 
 in_bounds :: proc(g: ^Game, x, y: int) -> bool {

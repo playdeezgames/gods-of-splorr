@@ -23,14 +23,16 @@ generation_fills_every_cell :: proc(t: ^testing.T) {
 weights_are_respected :: proc(t: ^testing.T) {
 	rand.reset(7)
 	counts: [Terrain]int
-	for _ in 0 ..< 116000 {
+	for _ in 0 ..< 119000 {
 		counts[pick_weighted(TERRAIN_WEIGHTS)] += 1
 	}
-	// expected: 100000 / 10000 / 5000 / 1000
+	// expected: 100000 / 10000 / 5000 / 1000 / 3000
 	testing.expect(t, abs(counts[.Grass] - 100000) < 1500, "grass weight")
 	testing.expect(t, abs(counts[.Tree] - 10000) < 500, "tree weight")
 	testing.expect(t, abs(counts[.Bush] - 5000) < 400, "bush weight")
 	testing.expect(t, abs(counts[.Pond] - 1000) < 200, "pond weight")
+	testing.expect(t, abs(counts[.Stone_Field] - 3000) < 300, "stone field weight")
+	testing.expect_value(t, counts[.Dirt], 0)
 }
 
 @(test)

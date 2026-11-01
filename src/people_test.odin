@@ -14,13 +14,13 @@ people_start_on_grass_with_both_sexes :: proc(t: ^testing.T) {
 	testing.expect_value(t, g.people[0].sex, Sex.Male)
 	testing.expect_value(t, g.people[1].sex, Sex.Female)
 	for p in g.people {
-		testing.expect_value(t, terrain_at(&g, p.x, p.y), Terrain.Grass)
+		testing.expect(t, walkable(terrain_at(&g, p.x, p.y)), "on open ground")
 	}
 	testing.expect(t, g.people[0].x != g.people[1].x || g.people[0].y != g.people[1].y, "distinct cells")
 }
 
 @(test)
-people_only_ever_walk_on_grass :: proc(t: ^testing.T) {
+people_only_ever_walk_on_open_ground :: proc(t: ^testing.T) {
 	rand.reset(11)
 	g: Game
 	game_init(&g, WORLD_SIZE)
@@ -33,7 +33,7 @@ people_only_ever_walk_on_grass :: proc(t: ^testing.T) {
 		update_people(&g)
 		for p in g.people {
 			testing.expect(t, in_bounds(&g, p.x, p.y), "in bounds")
-			testing.expect_value(t, terrain_at(&g, p.x, p.y), Terrain.Grass)
+			testing.expect(t, walkable(terrain_at(&g, p.x, p.y)), "on open ground")
 		}
 		testing.expect(t, g.people[0].x != g.people[1].x || g.people[0].y != g.people[1].y, "never share a cell")
 	}
@@ -44,9 +44,9 @@ people_only_ever_walk_on_grass :: proc(t: ^testing.T) {
 }
 
 @(test)
-only_grass_is_walkable :: proc(t: ^testing.T) {
+only_open_ground_is_walkable :: proc(t: ^testing.T) {
 	for terrain in Terrain {
-		testing.expect_value(t, walkable(terrain), terrain == .Grass)
+		testing.expect_value(t, walkable(terrain), terrain == .Grass || terrain == .Stone_Field || terrain == .Dirt)
 	}
 }
 

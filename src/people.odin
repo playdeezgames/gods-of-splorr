@@ -15,6 +15,10 @@ SEX_NAMES := [Sex]string {
 Item :: enum u8 {
 	None,
 	Food,
+	Stone,
+	Fiber,
+	Stick,
+	Twine,
 }
 
 DEFAULT_HANDS :: 2
@@ -96,9 +100,9 @@ random_melanin :: proc() -> f32 {
 // Average game time between steps; each wait is 0.5x to 1.5x this.
 PERSON_STEP_HOURS :: 10.0 / 60.0
 
-// People only walk on grass.
+// People walk on grass, stone fields and dirt.
 walkable :: proc(t: Terrain) -> bool {
-	return t == .Grass
+	return t == .Grass || t == .Stone_Field || t == .Dirt
 }
 
 person_at :: proc(g: ^Game, x, y: int) -> int {
@@ -137,7 +141,7 @@ update_people :: proc(g: ^Game) {
 				p.next_move_hours = next_step_time(p.next_move_hours)
 				continue
 			}
-			if !eat_when_hungry(&p) && !gather_adjacent(g, &p) {
+			if !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !craft_twine(&p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x

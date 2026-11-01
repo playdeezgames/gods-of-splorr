@@ -56,6 +56,6 @@ update_bushes :: proc(g: ^Game) {
 }
 
 bush_at :: proc(g: ^Game, x, y: int) -> (Bush, bool) {
-	if terrain_at(g, x, y) != .Bush {return {}, false}
+	if !in_bounds(g, x, y) || terrain_at(g, x, y) != .Bush {return {}, false}
 	return g.bushes[y * g.width + x], true
 }

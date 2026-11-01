@@ -39,6 +39,8 @@ TERRAIN_TILES := [Terrain]Tile {
 	.Tree  = {0, 8},
 	.Bush  = {18, 9},
 	.Pond  = {16, 6},
+	.Stone_Field = {14, 5},
+	.Dirt  = {0, 7},
 }
 
 PERSON_TILES := [Sex]Tile {
@@ -54,6 +56,8 @@ MINI_COLORS := [Terrain][3]f32 {
 	.Tree  = {0.15, 0.80, 0.15},
 	.Bush  = {0.55, 0.65, 0.10},
 	.Pond  = {0.10, 0.60, 1.00},
+	.Stone_Field = {0.60, 0.60, 0.65},
+	.Dirt  = {0.45, 0.30, 0.15},
 }
 
 game: Game
@@ -72,6 +76,8 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	advance_clock(&game.clock, game.cfg, min(dt, 0.25))
 	update_people(&game)
 	update_bushes(&game)
+	update_ground(&game)
+	update_ground_items(&game)
 	update_vitals(&game)
 	draw()
 	return true
@@ -97,6 +103,26 @@ draw :: proc() {
 		}
 	}
 
+	for it, i in game.ground_items { // dropped things sit in the bottom corner of their cell
+		vx, vy := it.x - game.cam_x, it.y - game.cam_y
+		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
+		slot := 0
+		for other in game.ground_items[:i] {
+			if other.x == it.x && other.y == it.y {slot += 1}
+		}
+		ix, iy := f32(vx * CELL + CELL - 12 - slot * 10), f32(vy * CELL + CELL - 12)
+		switch it.item {
+		case .Stone: fill_rect(ix, iy, 8, 8, 0.7, 0.7, 0.75, 1)
+		case .Fiber: fill_rect(ix, iy, 8, 8, 0.75, 0.85, 0.35, 1)
+		case .Stick: fill_rect(ix, iy, 8, 8, 0.6, 0.4, 0.2, 1)
+		case .Twine: fill_rect(ix, iy, 8, 8, 0.9, 0.75, 0.5, 1)
+		case .Food:
+			f := ground_food_freshness(&game, it) // berries go from red to brown as they spoil
+			fill_rect(ix, iy, 8, 8, 0.35 + 0.55 * f, 0.25 - 0.1 * f, 0.1 + 0.15 * f, 1)
+		case .None:
+		}
+	}
+
 	for c in game.corpses {
 		vx, vy := c.x - game.cam_x, c.y - game.cam_y
 		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
@@ -109,9 +135,14 @@ draw :: proc() {
 		tile, c := PERSON_TILES[p.sex], skin_color(p.melanin)
 		if p.asleep {c *= 0.5} // sleepers are dimmed
 		draw_tile_tinted(tile.col, tile.row, f32(vx * CELL), f32(vy * CELL), CELL, c.r, c.g, c.b)
-		for h in 0 ..< p.hand_count { // a red berry for each hand that holds food
-			if p.hands[h] == .Food {
-				fill_rect(f32(vx * CELL + 2 + h * 12), f32(vy * CELL + CELL - 10), 8, 8, 0.9, 0.15, 0.25, 1)
+		for h in 0 ..< p.hand_count { // a marker for each hand that holds something
+			hx, hy := f32(vx * CELL + 2 + h * 12), f32(vy * CELL + CELL - 10)
+			#partial switch p.hands[h] {
+			case .Food: fill_rect(hx, hy, 8, 8, 0.9, 0.15, 0.25, 1)
+			case .Stone: fill_rect(hx, hy, 8, 8, 0.7, 0.7, 0.75, 1)
+			case .Fiber: fill_rect(hx, hy, 8, 8, 0.75, 0.85, 0.35, 1)
+			case .Stick: fill_rect(hx, hy, 8, 8, 0.6, 0.4, 0.2, 1)
+			case .Twine: fill_rect(hx, hy, 8, 8, 0.9, 0.75, 0.5, 1)
 			}
 		}
 	}
@@ -127,11 +158,21 @@ draw :: proc() {
 
 	draw_minimap()
 
-	buf: [200]byte
+	buf, buf2: [200]byte
+	gbuf: [80]byte
 	t := terrain_at(&game, game.cursor_x, game.cursor_y)
 	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
-	if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
+	if sticks, ok := sticks_at(&game, game.cursor_x, game.cursor_y); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Tree  -  Sticks %.1f / %.0f", game.cursor_x, game.cursor_y, sticks, f32(STICKS_PER_TREE))
+	} else if fiber, ok := fiber_at(&game, game.cursor_x, game.cursor_y); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Grass  -  Fiber %.1f / %.0f", game.cursor_x, game.cursor_y, fiber, f32(FIBER_PER_GRASS))
+	} else if left, ok := stone_at(&game, game.cursor_x, game.cursor_y); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Stone field  -  Stone %.0f / %.0f", game.cursor_x, game.cursor_y, left, f32(STONE_FIELD_AMOUNT))
+	} else if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.1f", game.cursor_x, game.cursor_y, b.food, b.max_food)
+	}
+	if on_ground := describe_ground_items(&game, game.cursor_x, game.cursor_y, gbuf[:]); len(on_ground) > 0 {
+		s = fmt.bprintf(buf2[:], "%s\nOn the ground: %s", s, on_ground)
 	}
 	if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
 		p := game.people[i]
