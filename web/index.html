@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gods of SPLORR!!</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #050a05; color: #cfe8cf; font-family: monospace; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  canvas { width: min(100vw, calc((100vh - 70px) * 4 / 3)); image-rendering: pixelated; touch-action: none; cursor: crosshair; }
+  #info, #clock { font-size: 20px; height: 24px; }
+  #clock { color: #f0d890; }
+  #help { font-size: 12px; opacity: .6; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="720"></canvas>
+<div id="clock"></div>
+<div id="info"></div>
+<div id="help">Arrows/WASD: move cursor · Mouse: hover, wheel or drag to scroll · Space: pause · +/-: speed · Gamepad: d-pad / stick, bumpers speed, Start pause</div>
+<script src="odin.js"></script>
+<script>
+const COLS = 20, ROWS = 15, TILE = 12, GAP = 13;
+const canvas = document.getElementById("c");
+const g = canvas.getContext("2d");
+g.imageSmoothingEnabled = false;
+const infoEl = document.getElementById("info");
+const clockEl = document.getElementById("clock");
+const memory = new odin.WasmMemoryInterface();
+const decoder = new TextDecoder();
+
+// Urizen tiles are one colour on opaque black: knock the black out.
+let sheet = null;
+const img = new Image();
+img.onload = () => {
+  const c = document.createElement("canvas");
+  c.width = img.width; c.height = img.height;
+  const cg = c.getContext("2d");
+  cg.drawImage(img, 0, 0);
+  const d = cg.getImageData(0, 0, c.width, c.height);
+  for (let i = 0; i < d.data.length; i += 4) {
+    if (d.data[i] === 0 && d.data[i+1] === 0 && d.data[i+2] === 0) d.data[i+3] = 0;
+  }
+  cg.putImageData(d, 0, 0);
+  sheet = c;
+};
+img.src = "tileset.png";
+
+const rgb = (r, gr, b, a = 1) => `rgba(${r*255|0},${gr*255|0},${b*255|0},${a})`;
+const imports = { env: {
+  clear_canvas: (r, gr, b) => { g.fillStyle = rgb(r, gr, b); g.fillRect(0, 0, canvas.width, canvas.height); },
+  fill_rect: (x, y, w, h, r, gr, b, a) => { g.fillStyle = rgb(r, gr, b, a); g.fillRect(x, y, w, h); },
+  stroke_rect: (x, y, w, h, r, gr, b, line) => {
+    g.strokeStyle = rgb(r, gr, b); g.lineWidth = line;
+    g.strokeRect(x + line / 2, y + line / 2, w - line, h - line);
+  },
+  draw_tile: (col, row, x, y, size) => {
+    if (sheet) g.drawImage(sheet, GAP * col + 1, GAP * row + 1, TILE, TILE, x, y, size, size);
+  },
+  set_clock: (ptr, n) => {
+    const s = decoder.decode(new Uint8Array(memory.memory.buffer, ptr, n));
+    if (s !== clockEl.textContent) clockEl.textContent = s;
+  },
+  set_info: (ptr, n) => {
+    const s = decoder.decode(new Uint8Array(memory.memory.buffer, ptr, n));
+    if (s !== infoEl.textContent) infoEl.textContent = s;
+  },
+}};
+const ready = odin.runWasm("game.wasm", null, imports, memory);
+const game = () => memory.exports;
+
+// Calendar parameters from the address: ?day=<real seconds per game day>&dpm=<days per month>
+// &mpy=<months per year, rounded up to a multiple of 4>&lat=<degrees>
+const q = new URLSearchParams(location.search);
+const num = (k, d) => (q.has(k) && !isNaN(Number(q.get(k)))) ? Number(q.get(k)) : d;
+ready.then(() => game().configure(num("day", 0), num("dpm", 0), num("mpy", 0), num("lat", NaN)));
+
+// Keyboard (e.key before e.code; see vault Gotchas)
+const KEYS = {
+  ArrowLeft: [-1, 0], a: [-1, 0], A: [-1, 0],
+  ArrowRight: [1, 0], d: [1, 0], D: [1, 0],
+  ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
+  ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
+};
+window.addEventListener("keydown", (e) => {
+  if (e.key === " ") { e.preventDefault(); game().on_pause(); return; }
+  if (e.key === "+" || e.key === "=" || e.key === "]") { game().on_speed(1); return; }
+  if (e.key === "-" || e.key === "_" || e.key === "[") { game().on_speed(-1); return; }
+  const m = KEYS[e.key];
+  if (!m) return;
+  e.preventDefault();
+  game().on_move(m[0] * (e.shiftKey ? 5 : 1), m[1] * (e.shiftKey ? 5 : 1));
+});
+
+// Mouse: hover selects, wheel scrolls, drag pans.
+const cellOf = (e) => {
+  const r = canvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) * canvas.width / r.width;
+  const y = (e.clientY - r.top) * canvas.height / r.height;
+  return [Math.floor(x / (TILE * 4)), Math.floor(y / (TILE * 4))];
+};
+let drag = null;
+canvas.addEventListener("pointerdown", (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  drag = cellOf(e);
+});
+canvas.addEventListener("pointermove", (e) => {
+  const [cx, cy] = cellOf(e);
+  if (drag) {
+    const dx = drag[0] - cx, dy = drag[1] - cy;
+    if (dx || dy) { game().on_pan(dx, dy); }
+  }
+  game().on_hover(Math.max(0, Math.min(COLS - 1, cx)), Math.max(0, Math.min(ROWS - 1, cy)));
+});
+canvas.addEventListener("pointerup", () => { drag = null; });
+canvas.addEventListener("pointercancel", () => { drag = null; });
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const sx = Math.sign(e.shiftKey ? e.deltaY : e.deltaX), sy = e.shiftKey ? 0 : Math.sign(e.deltaY);
+  if (sx || sy) game().on_pan(sx, sy);
+}, { passive: false });
+
+// Gamepad: d-pad and left stick move the cursor, with repeat while held.
+let padDir = [0, 0], padNext = 0, padHeld = {};
+function pollPad(now) {
+  requestAnimationFrame(pollPad);
+  let dx = 0, dy = 0;
+  for (const p of navigator.getGamepads ? navigator.getGamepads() : []) {
+    if (!p) continue;
+    const b = (i) => p.buttons[i] && p.buttons[i].pressed;
+    if (b(14) || p.axes[0] < -0.5) dx = -1;
+    if (b(15) || p.axes[0] > 0.5) dx = 1;
+    for (const [i, act] of [[5, () => game().on_speed(1)], [4, () => game().on_speed(-1)], [9, () => game().on_pause()]]) {
+      if (b(i) && !padHeld[i]) act();
+      padHeld[i] = b(i);
+    }
+    if (b(12) || p.axes[1] < -0.5) dy = -1;
+    if (b(13) || p.axes[1] > 0.5) dy = 1;
+  }
+  if (!dx && !dy) { padDir = [0, 0]; return; }
+  const fresh = dx !== padDir[0] || dy !== padDir[1];
+  if (fresh || now >= padNext) {
+    padNext = now + (fresh ? 300 : 90);
+    padDir = [dx, dy];
+    game().on_move(dx, dy);
+  }
+}
+requestAnimationFrame(pollPad);
+</script>
+</body>
+</html>
