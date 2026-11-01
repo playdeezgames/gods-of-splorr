@@ -38,6 +38,7 @@ Game :: struct {
 	cam_y:            int,
 	cfg:              Calendar_Config,
 	clock:            Clock,
+	people:           [dynamic]Person,
 }
 
 pick_weighted :: proc(weights: [$E]int) -> E {
@@ -63,14 +64,20 @@ game_init :: proc(g: ^Game, size: int) {
 	for i in 0 ..< len(g.cells) {
 		g.cells[i] = pick_weighted(TERRAIN_WEIGHTS)
 	}
+	spawn_person(g, .Male)
+	spawn_person(g, .Female)
 	g.cursor_x = size / 2
 	g.cursor_y = size / 2
+	if len(g.people) > 0 { // start by looking at the first person
+		g.cursor_x, g.cursor_y = g.people[0].x, g.people[0].y
+	}
 	g.cam_x, g.cam_y = 0, 0
 	follow_cursor(g)
 }
 
 game_destroy :: proc(g: ^Game) {
 	delete(g.cells)
+	delete(g.people)
 }
 
 in_bounds :: proc(g: ^Game, x, y: int) -> bool {

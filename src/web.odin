@@ -23,6 +23,7 @@ foreign host {
 	fill_rect :: proc(x, y, w, h: f32, r, g, b, a: f32) ---
 	stroke_rect :: proc(x, y, w, h: f32, r, g, b: f32, line: f32) ---
 	draw_tile :: proc(col, row: i32, x, y, size: f32) ---
+	draw_tile_tinted :: proc(col, row: i32, x, y, size: f32, r, g, b: f32) ---
 	set_info :: proc(ptr: [^]byte, n: i32) ---
 	set_clock :: proc(ptr: [^]byte, n: i32) ---
 }
@@ -38,6 +39,11 @@ TERRAIN_TILES := [Terrain]Tile {
 	.Tree  = {0, 8},
 	.Bush  = {18, 9},
 	.Pond  = {16, 6},
+}
+
+PERSON_TILES := [Sex]Tile {
+	.Male   = {104, 0},
+	.Female = {112, 46},
 }
 
 MINI_COLORS := [Terrain][3]f32 {
@@ -61,6 +67,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 	context = ctx
 	free_all(context.temp_allocator)
 	advance_clock(&game.clock, game.cfg, min(dt, 0.25))
+	update_people(&game)
 	draw()
 	return true
 }
@@ -81,6 +88,13 @@ draw :: proc() {
 		}
 	}
 
+	for p in game.people {
+		vx, vy := p.x - game.cam_x, p.y - game.cam_y
+		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
+		tile, c := PERSON_TILES[p.sex], skin_color(p.melanin)
+		draw_tile_tinted(tile.col, tile.row, f32(vx * CELL), f32(vy * CELL), CELL, c.r, c.g, c.b)
+	}
+
 	tint := ambient_overlay(sun_sin(game.clock, game.cfg))
 	if tint[3] > 0 {
 		fill_rect(0, 0, CANVAS_W, CANVAS_H, tint.r, tint.g, tint.b, tint.a)
@@ -95,6 +109,9 @@ draw :: proc() {
 	buf: [96]byte
 	t := terrain_at(&game, game.cursor_x, game.cursor_y)
 	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
+	if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
+		s = fmt.bprintf(buf[:], "(%d, %d)  %s  -  Person (%s, melanin %.2f)", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t], SEX_NAMES[game.people[i].sex], game.people[i].melanin)
+	}
 	set_info(raw_data(s), i32(len(s)))
 
 	d := date_of(game.clock, game.cfg)
@@ -123,6 +140,10 @@ draw_minimap :: proc() {
 			c := MINI_COLORS[terrain_at(&game, x, y)]
 			fill_rect(ox + f32(x * MINI_CELL), oy + f32(y * MINI_CELL), MINI_CELL, MINI_CELL, c.r, c.g, c.b, 1)
 		}
+	}
+	for p in game.people {
+		c := skin_color(p.melanin)
+		fill_rect(ox + f32(p.x * MINI_CELL), oy + f32(p.y * MINI_CELL), MINI_CELL, MINI_CELL, c.r, c.g, c.b, 1)
 	}
 	stroke_rect(
 		ox + f32(game.cam_x * MINI_CELL),

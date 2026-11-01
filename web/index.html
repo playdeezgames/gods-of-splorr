@@ -46,6 +46,23 @@ img.onload = () => {
 };
 img.src = "tileset.png";
 
+// Tiles are one colour on transparent, so a tint is a source-in fill of the whole sheet.
+const tints = {};
+function tinted(r, gr, b) {
+  if (!sheet) return null;
+  const key = `${r},${gr},${b}`;
+  if (!tints[key]) {
+    const c = document.createElement("canvas");
+    c.width = sheet.width; c.height = sheet.height;
+    const cg = c.getContext("2d");
+    cg.drawImage(sheet, 0, 0);
+    cg.globalCompositeOperation = "source-in";
+    cg.fillStyle = rgb(r, gr, b);
+    cg.fillRect(0, 0, c.width, c.height);
+    tints[key] = c;
+  }
+  return tints[key];
+}
 const rgb = (r, gr, b, a = 1) => `rgba(${r*255|0},${gr*255|0},${b*255|0},${a})`;
 const imports = { env: {
   clear_canvas: (r, gr, b) => { g.fillStyle = rgb(r, gr, b); g.fillRect(0, 0, canvas.width, canvas.height); },
@@ -56,6 +73,10 @@ const imports = { env: {
   },
   draw_tile: (col, row, x, y, size) => {
     if (sheet) g.drawImage(sheet, GAP * col + 1, GAP * row + 1, TILE, TILE, x, y, size, size);
+  },
+  draw_tile_tinted: (col, row, x, y, size, r, gr, b) => {
+    const t = tinted(r, gr, b);
+    if (t) g.drawImage(t, GAP * col + 1, GAP * row + 1, TILE, TILE, x, y, size, size);
   },
   set_clock: (ptr, n) => {
     const s = decoder.decode(new Uint8Array(memory.memory.buffer, ptr, n));
