@@ -85,3 +85,39 @@ screen_sized_world_works :: proc(t: ^testing.T) {
 	g.cells[2 * 7 + 6] = .Tree
 	testing.expect_value(t, terrain_at(&g, 6, 2), Terrain.Tree)
 }
+
+@(test)
+game_is_over_only_when_nobody_is_left :: proc(t: ^testing.T) {
+	rand.reset(5)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	testing.expect(t, !game_over(&g), "people alive")
+	for len(g.people) > 1 {
+		ordered_remove(&g.people, 0)
+		testing.expect(t, !game_over(&g), "one person is enough")
+	}
+	ordered_remove(&g.people, 0)
+	testing.expect(t, game_over(&g), "no people left")
+}
+
+@(test)
+starvation_of_everyone_ends_the_game_and_restart_begins_again :: proc(t: ^testing.T) {
+	rand.reset(6)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	g.cfg.days_per_month = 7
+	for &p in g.people {p.health = 1}
+	g.clock.hours += 100
+	update_vitals(&g)
+	testing.expect(t, game_over(&g), "everyone starved")
+	testing.expect_value(t, len(g.corpses), START_PEOPLE)
+
+	restart_game(&g)
+	testing.expect(t, !game_over(&g), "fresh people")
+	testing.expect_value(t, len(g.people), START_PEOPLE)
+	testing.expect_value(t, len(g.corpses), 0)
+	testing.expect_value(t, g.cfg.days_per_month, 7)
+	testing.expect_value(t, g.clock.hours, clock_init().hours)
+}

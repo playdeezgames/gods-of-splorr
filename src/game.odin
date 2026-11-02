@@ -126,6 +126,20 @@ game_destroy :: proc(g: ^Game) {
 	delete(g.ground_items)
 }
 
+// The only way to lose: nobody is left alive.
+game_over :: proc(g: ^Game) -> bool {
+	return len(g.people) == 0
+}
+
+// Replace the world with a fresh one of the same size, keeping the calendar settings.
+restart_game :: proc(g: ^Game) {
+	width, height, cfg := g.width, g.height, g.cfg
+	game_destroy(g)
+	g^ = {}
+	game_init_rect(g, width, height)
+	g.cfg = cfg
+}
+
 in_bounds :: proc(g: ^Game, x, y: int) -> bool {
 	return x >= 0 && y >= 0 && x < g.width && y < g.height
 }

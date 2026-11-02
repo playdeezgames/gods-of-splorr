@@ -17,6 +17,8 @@
   #stage.clock-bottom #info { bottom: 3.2em; }
   #info:empty { display: none; }
   #help { font-size: 12px; opacity: .6; }
+  #over { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(40, 0, 0, .8); color: #f0b0b0; text-align: center; line-height: 1.6; white-space: pre-wrap; font-size: 1.3em; cursor: pointer; }
+  #stage.game-over #over { display: flex; }
   #credits { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5, 10, 5, .92); text-align: center; line-height: 1.6; cursor: pointer; }
   #stage.show-credits #credits { display: flex; }
   #credits h2 { margin: 0 0 .6em; color: #f0d890; }
@@ -31,6 +33,7 @@
 <canvas id="c" width="960" height="720"></canvas>
 <div id="clock"></div>
 <div id="info"></div>
+<div id="over"></div>
 <div id="credits"><div>
   <h2>Gods of SPLORR!!</h2>
   <div>Code and design: the developer, with Claude, an AI agent</div>
@@ -53,6 +56,7 @@ g.imageSmoothingEnabled = false;
 const infoEl = document.getElementById("info");
 const clockEl = document.getElementById("clock");
 const stageEl = document.getElementById("stage");
+const overEl = document.getElementById("over");
 const memory = new odin.WasmMemoryInterface();
 const decoder = new TextDecoder();
 
@@ -113,6 +117,11 @@ const imports = { env: {
     stageEl.classList.toggle("info-right", !!infoRight);
     stageEl.classList.toggle("clock-bottom", !!clockBottom);
   },
+  set_over: (ptr, n) => {
+    const s = decoder.decode(new Uint8Array(memory.memory.buffer, ptr, n));
+    if (s !== overEl.textContent) overEl.textContent = s;
+    stageEl.classList.toggle("game-over", n > 0);
+  },
   set_info: (ptr, n) => {
     const s = decoder.decode(new Uint8Array(memory.memory.buffer, ptr, n));
     if (s !== infoEl.textContent) infoEl.textContent = s;
@@ -141,11 +150,13 @@ const KEYS = {
   ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
   ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
 };
+overEl.addEventListener("click", () => game().on_restart());
 const creditsEl = document.getElementById("credits");
 const toggleCredits = (on) => stageEl.classList.toggle("show-credits", on);
 creditsEl.addEventListener("click", (e) => { if (e.target.tagName !== "A") toggleCredits(false); });
 window.addEventListener("keydown", (e) => {
   if (e.key === "c" || e.key === "C") { toggleCredits(!stageEl.classList.contains("show-credits")); return; }
+  if (e.key === "r" || e.key === "R") { game().on_restart(); return; }
   if (e.key === "Escape") { toggleCredits(false); return; }
   if (e.key === " ") { e.preventDefault(); game().on_pause(); return; }
   if (e.key === "+" || e.key === "=" || e.key === "]") { game().on_speed(1); return; }
@@ -194,7 +205,7 @@ function pollPad(now) {
     const b = (i) => p.buttons[i] && p.buttons[i].pressed;
     if (b(14) || p.axes[0] < -0.5) dx = -1;
     if (b(15) || p.axes[0] > 0.5) dx = 1;
-    for (const [i, act] of [[5, () => game().on_speed(1)], [4, () => game().on_speed(-1)], [9, () => game().on_pause()]]) {
+    for (const [i, act] of [[5, () => game().on_speed(1)], [4, () => game().on_speed(-1)], [9, () => game().on_pause()], [0, () => game().on_restart()]]) {
       if (b(i) && !padHeld[i]) act();
       padHeld[i] = b(i);
     }

@@ -27,6 +27,7 @@ foreign host {
 	set_info :: proc(ptr: [^]byte, n: i32) ---
 	set_clock :: proc(ptr: [^]byte, n: i32) ---
 	set_layout :: proc(info_right, clock_bottom: bool) ---
+	set_over :: proc(ptr: [^]byte, n: i32) --- // text for the game-over screen; empty hides it
 }
 
 // Urizen sheet coordinates (col, row).
@@ -76,13 +77,15 @@ main :: proc() {
 step :: proc(dt: f64, c: runtime.Context) -> bool {
 	context = ctx
 	free_all(context.temp_allocator)
-	advance_clock(&game.clock, game.cfg, min(dt, 0.25))
-	update_people(&game)
-	update_bushes(&game)
-	update_ground(&game)
-	update_ground_items(&game)
-	update_corpses(&game)
-	update_vitals(&game)
+	if !game_over(&game) { // the world stops when the last person dies
+		advance_clock(&game.clock, game.cfg, min(dt, 0.25))
+		update_people(&game)
+		update_bushes(&game)
+		update_ground(&game)
+		update_ground_items(&game)
+		update_corpses(&game)
+		update_vitals(&game)
+	}
 	draw()
 	return true
 }
@@ -221,6 +224,17 @@ draw :: proc() {
 		temperature_c(game.clock, game.cfg), speed,
 	)
 	set_clock(raw_data(cs), i32(len(cs)))
+
+	obuf: [200]byte
+	os := ""
+	if game_over(&game) {
+		os = fmt.bprintf(
+			obuf[:],
+			"All of your people are dead.\nYou lasted %d years, %d months, %d days.\n\nPress R or click to begin again.",
+			d.year - 1, d.month - 1, d.day - 1,
+		)
+	}
+	set_over(raw_data(os), i32(len(os)))
 }
 
 draw_minimap :: proc() {
@@ -295,6 +309,12 @@ on_speed :: proc "c" (delta: i32) {
 on_pause :: proc "c" () {
 	context = ctx
 	game.clock.paused = !game.clock.paused
+}
+
+@(export)
+on_restart :: proc "c" () {
+	context = ctx
+	if game_over(&game) {restart_game(&game)}
 }
 
 // Non-positive numbers (and NaN latitude) keep the current value.
