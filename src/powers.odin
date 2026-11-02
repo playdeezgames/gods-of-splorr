@@ -8,16 +8,19 @@ FAITH_PER_HOUR :: 2.0
 Power :: enum u8 {
 	Manna, // drops a berry on the ground
 	Smite, // kills the person standing there
+	Snake, // a poisonous snake that hunts nearby people
 }
 
 POWER_NAMES := [Power]string {
 	.Manna = "Manna",
 	.Smite = "Smite",
+	.Snake = "Snake",
 }
 
 POWER_COSTS := [Power]f32 {
 	.Manna = 10,
 	.Smite = 30,
+	.Snake = 25,
 }
 
 // Regain faith for the game time since the last call.
@@ -34,6 +37,7 @@ power_has_target :: proc(g: ^Game, power: Power) -> bool {
 	switch power {
 	case .Manna: return walkable(terrain_at(g, x, y))
 	case .Smite: return person_at(g, x, y) >= 0
+	case .Snake: return can_enter(g, x, y)
 	}
 	return false
 }
@@ -48,6 +52,8 @@ use_power :: proc(g: ^Game, power: Power) -> bool {
 		append(&g.ground_items, Ground_Item{x = x, y = y, item = .Food, dropped_hours = g.clock.hours})
 	case .Smite:
 		kill_person(g, person_at(g, x, y))
+	case .Snake:
+		spawn_snake(g, x, y)
 	}
 	g.faith -= POWER_COSTS[power]
 	return true

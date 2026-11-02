@@ -41,6 +41,7 @@ Person :: struct {
 	crafting:        f32, // skill 0 to 100: chance of success when crafting
 	hand_count:      int, // how many hands, so how many items can be carried; one item per hand
 	hands:           [MAX_HANDS]Item,
+	poison_hours:    f32, // hours of poison left; health drains while it lasts
 	next_move_hours: f64, // game clock time of the next step
 }
 
@@ -159,7 +160,7 @@ person_at :: proc(g: ^Game, x, y: int) -> int {
 }
 
 can_enter :: proc(g: ^Game, x, y: int) -> bool {
-	return in_bounds(g, x, y) && walkable(terrain_at(g, x, y)) && person_at(g, x, y) < 0
+	return in_bounds(g, x, y) && walkable(terrain_at(g, x, y)) && person_at(g, x, y) < 0 && snake_at(g, x, y) < 0
 }
 
 next_step_time :: proc(from: f64) -> f64 {
@@ -204,6 +205,11 @@ update_people :: proc(g: ^Game) {
 // to the next, so a step that crosses a boundary is exact at any speed.
 step_vitals :: proc(p: ^Person, dt: f32) {
 	step_energy(p, dt)
+	if p.poison_hours > 0 { // poison runs its course whatever else is going on
+		t := min(dt, p.poison_hours)
+		p.health = max(p.health - POISON_PER_HOUR * t, 0)
+		p.poison_hours -= t
+	}
 	left := dt
 	if p.stomach > 0 {
 		t := min(left, p.stomach / DIGEST_PER_HOUR)

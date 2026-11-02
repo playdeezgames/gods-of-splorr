@@ -27,6 +27,7 @@ foreign host {
 	set_info :: proc(ptr: [^]byte, n: i32) ---
 	set_clock :: proc(ptr: [^]byte, n: i32) ---
 	set_layout :: proc(info_right, clock_bottom: bool) ---
+	set_powers :: proc(ptr: [^]byte, n: i32, armed: i32, affordable: i32) --- // button labels, one per line; armed power or -1; bitmask of affordable ones
 	set_over :: proc(ptr: [^]byte, n: i32) --- // text for the game-over screen; empty hides it
 }
 
@@ -86,6 +87,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 		update_corpses(&game)
 		update_vitals(&game)
 		update_faith(&game)
+		update_snakes(&game)
 	}
 	draw()
 	return true
@@ -135,6 +137,13 @@ draw :: proc() {
 		}
 	}
 
+	SNAKE_TILE :: Tile{2, 14}
+	for s in game.snakes {
+		vx, vy := s.x - game.cam_x, s.y - game.cam_y
+		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
+		draw_tile(SNAKE_TILE.col, SNAKE_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL)
+	}
+
 	for c in game.corpses {
 		vx, vy := c.x - game.cam_x, c.y - game.cam_y
 		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
@@ -152,6 +161,7 @@ draw :: proc() {
 		tile, c := PERSON_TILES[p.sex], skin_color(p.melanin)
 		if p.asleep {c *= 0.5} // sleepers are dimmed
 		draw_tile_tinted(tile.col, tile.row, f32(vx * CELL), f32(vy * CELL), CELL, c.r, c.g, c.b)
+		if p.poison_hours > 0 {fill_rect(f32(vx * CELL + 2), f32(vy * CELL + 2), 8, 8, 0.3, 0.9, 0.2, 1)} // poisoned
 		for h in 0 ..< p.hand_count { // a marker for each hand that holds something
 			hx, hy := f32(vx * CELL + 2 + h * 12), f32(vy * CELL + CELL - 10)
 			#partial switch p.hands[h] {
@@ -191,6 +201,9 @@ draw :: proc() {
 	} else if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.1f", game.cursor_x, game.cursor_y, b.food, b.max_food)
 	}
+	if snake_at(&game, game.cursor_x, game.cursor_y) >= 0 {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Poisonous snake", game.cursor_x, game.cursor_y)
+	}
 	if on_ground := describe_ground_items(&game, game.cursor_x, game.cursor_y, gbuf[:]); len(on_ground) > 0 {
 		s = fmt.bprintf(buf2[:], "%s\nOn the ground: %s", s, on_ground)
 	}
@@ -202,6 +215,9 @@ draw :: proc() {
 			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
 			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count, p.foraging, p.crafting,
 		)
+		if p.poison_hours > 0 {
+			s = fmt.bprintf(buf2[:], "%s\nPoisoned for %.1fh", s, p.poison_hours)
+		}
 	} else if i := corpse_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
 		c := game.corpses[i]
 		kind := "Skeleton" if c.skeleton else "Corpse"
@@ -227,10 +243,21 @@ draw :: proc() {
 	pbuf: [120]byte
 	cs = fmt.bprintf(
 		pbuf[:],
-		"%s\nFaith %.0f  [1] %s %.0f  [2] %s %.0f",
-		cs, game.faith, POWER_NAMES[.Manna], POWER_COSTS[.Manna], POWER_NAMES[.Smite], POWER_COSTS[.Smite],
+		"%s\nFaith %.0f",
+		cs, game.faith,
 	)
 	set_clock(raw_data(cs), i32(len(cs)))
+
+	lbuf: [120]byte
+	armed_index, affordable: i32 = -1, 0
+	labels := ""
+	for power in Power {
+		labels = fmt.bprintf(lbuf[:], "%s[%d] %s %.0f\n", labels, int(power) + 1, POWER_NAMES[power], POWER_COSTS[power])
+		if game.faith >= POWER_COSTS[power] {affordable |= 1 << u32(power)}
+		if a, ok := game.armed.?; ok && a == power {armed_index = i32(power)}
+	}
+	labels = labels[:len(labels) - 1]
+	set_powers(raw_data(labels), i32(len(labels)), armed_index, affordable)
 
 	obuf: [200]byte
 	os := ""
@@ -264,6 +291,9 @@ draw_minimap :: proc() {
 	for c in game.corpses {
 		shade: f32 = 0.7 if c.skeleton else 0.4
 		fill_rect(ox + f32(c.x * MINI_CELL), oy + f32(c.y * MINI_CELL), MINI_CELL, MINI_CELL, shade, shade, shade, 1)
+	}
+	for s in game.snakes {
+		fill_rect(ox + f32(s.x * MINI_CELL), oy + f32(s.y * MINI_CELL), MINI_CELL, MINI_CELL, 0.3, 0.9, 0.2, 1)
 	}
 	for p in game.people {
 		c := skin_color(p.melanin)
@@ -321,7 +351,32 @@ on_pause :: proc "c" () {
 @(export)
 on_power :: proc "c" (power: i32) {
 	context = ctx
-	if power >= 0 && power < len(Power) {use_power(&game, Power(power))}
+	if power >= 0 && power < len(Power) {_ = use_power(&game, Power(power))}
+}
+
+// Arming a power makes the next click on the map cast it there; arming it again disarms it.
+@(export)
+on_arm :: proc "c" (power: i32) {
+	context = ctx
+	if power < 0 || power >= len(Power) {return}
+	if a, ok := game.armed.?; ok && a == Power(power) {
+		game.armed = nil
+	} else {
+		game.armed = Power(power)
+	}
+}
+
+@(export)
+on_disarm :: proc "c" () {
+	context = ctx
+	game.armed = nil
+}
+
+@(export)
+on_click :: proc "c" (view_x, view_y: i32) {
+	context = ctx
+	hover_cell(&game, int(view_x), int(view_y))
+	if a, ok := game.armed.?; ok {use_power(&game, a)}
 }
 
 @(export)

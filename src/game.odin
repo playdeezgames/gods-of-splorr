@@ -57,6 +57,8 @@ Game :: struct {
 	stone:            []f32, // parallel to cells; stone left where the cell is a Stone_Field
 	terrain_updated_hours: f64,
 	ground_items:     [dynamic]Ground_Item, // things people have dropped
+	snakes:           [dynamic]Snake,
+	armed:            Maybe(Power), // a click on the map casts this power there
 	faith:            f32, // the god's power to act; see powers.odin
 	faith_updated_hours: f64,
 }
@@ -127,6 +129,7 @@ game_destroy :: proc(g: ^Game) {
 	delete(g.fiber)
 	delete(g.sticks)
 	delete(g.ground_items)
+	delete(g.snakes)
 }
 
 // The only way to lose: nobody is left alive.

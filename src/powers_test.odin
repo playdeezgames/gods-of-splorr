@@ -78,3 +78,23 @@ no_powers_after_game_over :: proc(t: ^testing.T) {
 	g.faith = MAX_FAITH
 	testing.expect(t, !use_power(&g, .Manna), "the game is over")
 }
+
+@(test)
+snake_needs_a_free_cell_and_a_price :: proc(t: ^testing.T) {
+	rand.reset(26)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	g.cursor_x, g.cursor_y = g.people[0].x, g.people[0].y
+	g.faith = MAX_FAITH
+	testing.expect(t, !use_power(&g, .Snake), "a person is standing there")
+	for y in 0 ..< g.height { // find some open ground with nobody on it
+		for x in 0 ..< g.width {
+			if can_enter(&g, x, y) {g.cursor_x, g.cursor_y = x, y}
+		}
+	}
+	testing.expect(t, use_power(&g, .Snake), "free ground")
+	testing.expect_value(t, len(g.snakes), 1)
+	testing.expect_value(t, g.faith, MAX_FAITH - POWER_COSTS[.Snake])
+	testing.expect(t, !use_power(&g, .Snake), "already a snake there")
+}
