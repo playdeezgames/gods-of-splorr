@@ -96,3 +96,52 @@ snake_wanders_when_nobody_is_near :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, moved, "it moved")
 }
+
+@(test)
+people_step_away_from_a_close_snake :: proc(t: ^testing.T) {
+	rand.reset(35)
+	g: Game
+	strip(&g)
+	defer game_destroy(&g)
+	add_person(&g, 2, 0)
+	spawn_snake(&g, 1, 0)
+	testing.expect(t, flee_snake(&g, &g.people[0]), "snake is close")
+	testing.expect_value(t, g.people[0].x, 3)
+}
+
+@(test)
+cornered_people_stand_still_and_distant_ones_ignore_snakes :: proc(t: ^testing.T) {
+	rand.reset(36)
+	g: Game
+	strip(&g)
+	defer game_destroy(&g)
+	add_person(&g, 4, 0)
+	spawn_snake(&g, 3, 0)
+	testing.expect(t, flee_snake(&g, &g.people[0]), "snake is close")
+	testing.expect_value(t, g.people[0].x, 4) // nowhere to go
+
+	clear(&g.snakes)
+	spawn_snake(&g, 0, 0) // four cells away is out of range
+	testing.expect(t, !flee_snake(&g, &g.people[0]), "too far to care")
+	testing.expect_value(t, g.people[0].x, 4)
+}
+
+@(test)
+fleeing_people_in_the_open_keep_out_of_reach :: proc(t: ^testing.T) {
+	rand.reset(37)
+	g: Game
+	game_init_rect(&g, 9, 9)
+	defer game_destroy(&g)
+	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
+	clear(&g.people)
+	add_person(&g, 4, 4)
+	g.people[0].next_move_hours = 0
+	spawn_snake(&g, 3, 4)
+	g.snakes[0].next_move_hours = 1e9 // a snake that stays put
+	for _ in 0 ..< 20 {
+		g.clock.hours += 0.2
+		update_people(&g)
+	}
+	p := g.people[0]
+	testing.expect(t, max(abs(p.x - 3), abs(p.y - 4)) > 1, "never next to the snake")
+}

@@ -188,7 +188,7 @@ update_people :: proc(g: ^Game) {
 				p.next_move_hours = next_step_time(p.next_move_hours)
 				continue
 			}
-			if !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
+			if !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x

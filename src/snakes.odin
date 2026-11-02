@@ -33,6 +33,31 @@ spawn_snake :: proc(g: ^Game, x, y: int) -> bool {
 	return true
 }
 
+PERSON_FEAR :: 3 // people run from a snake this close (distance along both axes)
+
+// Step away from the nearest snake if one is close. A person with nowhere better to go stands
+// still, so this is true whenever a snake is near and the person should not do anything else.
+flee_snake :: proc(g: ^Game, p: ^Person) -> bool {
+	nearest, nearest_dist := -1, PERSON_FEAR + 1
+	for s, i in g.snakes {
+		if dist := max(abs(s.x - p.x), abs(s.y - p.y)); dist < nearest_dist {nearest, nearest_dist = i, dist}
+	}
+	if nearest < 0 {return false}
+	s := g.snakes[nearest]
+	sq :: proc(n: int) -> int {return n * n}
+	best_dist := sq(p.x - s.x) + sq(p.y - s.y) // only moves that get farther away count
+	bx, by := p.x, p.y
+	start := rand.int_max(len(DIRS))
+	for k in 0 ..< len(DIRS) {
+		d := DIRS[(start + k) % len(DIRS)]
+		nx, ny := p.x + d.x, p.y + d.y
+		if !can_enter(g, nx, ny) {continue}
+		if dist := sq(nx - s.x) + sq(ny - s.y); dist > best_dist {best_dist, bx, by = dist, nx, ny}
+	}
+	p.x, p.y = bx, by
+	return true
+}
+
 poison_person :: proc(p: ^Person) {
 	p.poison_hours = min(p.poison_hours + POISON_HOURS_PER_BITE, MAX_POISON_HOURS)
 }
