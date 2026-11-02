@@ -45,6 +45,7 @@ TERRAIN_TILES := [Terrain]Tile {
 	.Pond  = {16, 6},
 	.Stone_Field = {14, 5},
 	.Dirt  = {0, 7},
+	.Fire_Pit = {0, 42}, // the campfire
 }
 
 PERSON_TILES := [Sex]Tile {
@@ -64,6 +65,7 @@ MINI_COLORS := [Terrain][3]f32 {
 	.Pond  = {0.10, 0.60, 1.00},
 	.Stone_Field = {0.60, 0.60, 0.65},
 	.Dirt  = {0.45, 0.30, 0.15},
+	.Fire_Pit = {0.95, 0.40, 0.10},
 }
 
 game: Game
@@ -139,6 +141,10 @@ draw :: proc() {
 		case .Knife: fill_rect(ix, iy, 8, 8, 0.95, 0.95, 0.4, 1)
 		case .Spear: fill_rect(ix, iy, 8, 8, 0.95, 0.6, 0.2, 1)
 		case .Reed: fill_rect(ix, iy, 8, 8, 0.5 * fade, 0.85 * fade, 0.4 * fade, 1)
+		case .Bow: fill_rect(ix, iy, 8, 8, 0.7, 0.5, 0.25, 1)
+		case .Stake: fill_rect(ix, iy, 8, 8, 0.85, 0.7, 0.45, 1)
+		case .Fire_Drill: fill_rect(ix, iy, 8, 8, 0.95, 0.45, 0.2, 1)
+		case .Fire_Pit: // never lies on the ground
 		case .Basket: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.25 * fade, 1)
 		case .Snake_Corpse: fill_rect(ix, iy, 8, 8, 0.2 + 0.2 * fade, 0.5 * fade, 0.15, 1)
 		case .Snake_Meat: fill_rect(ix, iy, 8, 8, 0.95 * fade, 0.55 * fade, 0.6 * fade, 1)
@@ -193,6 +199,9 @@ draw :: proc() {
 			case .Knife: fill_rect(hx, hy, size, size, 0.95, 0.95, 0.4, 1)
 			case .Spear: fill_rect(hx, hy, size, size, 0.95, 0.6, 0.2, 1)
 			case .Reed: fill_rect(hx, hy, size, size, 0.5, 0.85, 0.4, 1)
+			case .Bow: fill_rect(hx, hy, size, size, 0.7, 0.5, 0.25, 1)
+			case .Stake: fill_rect(hx, hy, size, size, 0.85, 0.7, 0.45, 1)
+			case .Fire_Drill: fill_rect(hx, hy, size, size, 0.95, 0.45, 0.2, 1)
 			case .Basket: fill_rect(hx, hy, size, size, 0.8, 0.6, 0.25, 1)
 			}
 		}
@@ -217,6 +226,8 @@ draw :: proc() {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Tree  -  Sticks %.1f / %.0f", game.cursor_x, game.cursor_y, sticks, f32(STICKS_PER_TREE))
 	} else if fiber, ok := fiber_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Grass  -  Fiber %.1f / %.0f", game.cursor_x, game.cursor_y, fiber, f32(FIBER_PER_GRASS))
+	} else if fuel, ok := fuel_at(&game, game.cursor_x, game.cursor_y); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Fire pit  -  Fuel %.1f / %.0f sticks", game.cursor_x, game.cursor_y, fuel, f32(FIRE_PIT_FUEL))
 	} else if reeds, ok := reeds_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Pond  -  Reeds %.1f / %.0f", game.cursor_x, game.cursor_y, reeds, f32(REEDS_PER_POND))
 	} else if left, ok := stone_at(&game, game.cursor_x, game.cursor_y); ok {
@@ -239,6 +250,7 @@ draw :: proc() {
 			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), carry_slots(p), p.foraging, p.crafting, p.ranged,
 		)
 		s = fmt.tprintf("%s\nAge %.0f of %.0f", s, p.age_years, p.lifespan_years)
+		s = fmt.tprintf("%s\nMood: %s (dopamine %.0f)%s", s, MOOD_NAMES[mood_of(p.dopamine)], p.dopamine, " - craving" if craving(p) else "")
 		if made := describe_craft_levels(p); len(made) > 0 {
 			s = fmt.tprintf("%s\nCrafted: %s", s, made)
 		}

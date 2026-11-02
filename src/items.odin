@@ -33,6 +33,10 @@ SPOIL_HOURS := [Item]f64 {
 	.Snake_Skin = TWINE_SPOIL_HOURS,
 	.Reed = TWINE_SPOIL_HOURS,
 	.Basket = STICK_SPOIL_HOURS,
+	.Bow = 0, // keeps like the other tools
+	.Stake = 0,
+	.Fire_Drill = 0,
+	.Fire_Pit = 0,
 }
 DROP_CHANCE :: 0.02 // chance per action that a person carrying something simply sets it down
 
@@ -85,8 +89,14 @@ gather_stone_here :: proc(g: ^Game, p: ^Person) -> bool {
 // (one point per success so far) to their crafting skill, and every success raises that level by one.
 craft_roll :: proc(p: ^Person, item: Item) -> bool {
 	if !skill_succeeds(p.crafting + f32(p.craft_levels[item])) {return false}
-	p.craft_levels[item] += 1
+	craft_credit(p, item)
 	return true
+}
+
+// A success with no roll behind it, such as building a firepit.
+craft_credit :: proc(p: ^Person, item: Item) {
+	reward_dopamine(p, item) // before the level goes up: the reward depends on how new this is
+	p.craft_levels[item] += 1
 }
 
 // "twine 5, knife 2" for what a person has made, or "" if they have made nothing.
@@ -116,6 +126,10 @@ ITEM_NAMES := [Item]string {
 	.Snake_Skin = "snake skin",
 	.Reed = "reed",
 	.Basket = "basket",
+	.Bow = "bow",
+	.Stake = "stake",
+	.Fire_Drill = "fire drill",
+	.Fire_Pit = "fire pit",
 }
 
 // Twist two plant fibers held in hand into one twine, which takes one hand and frees the other.
@@ -199,9 +213,9 @@ craft_basket :: proc(g: ^Game, p: ^Person) -> bool {
 	return craft_recipe(g, p, ingredients[:], .Basket)
 }
 
-MAX_INGREDIENTS :: 8
+MAX_INGREDIENTS :: 16
 
-craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item) -> bool {
+craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item, fail_wastes := true) -> bool {
 	n := len(ingredients)
 	hand_of: [MAX_INGREDIENTS]int = -1 // where each ingredient was found: a hand index...
 	ground_of: [MAX_INGREDIENTS]int = -1 // ...or an index into ground_items
@@ -225,9 +239,9 @@ craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item) ->
 		}
 		if ground_of[k] < 0 {return false}
 	}
-	// Work out what is spent: everything on success, only the last ingredient on failure.
+	// Work out what is spent: everything on success, only the last ingredient on failure (or nothing).
 	success := craft_roll(p, result)
-	first := 0 if success else n - 1
+	first := 0 if success else (n - 1 if fail_wastes else n) // a failed try spends the last ingredient, or nothing
 	remove_ground: [MAX_INGREDIENTS]int = -1
 	for k in first ..< n {
 		if hand_of[k] >= 0 {p.hands[hand_of[k]] = .None}
@@ -278,6 +292,44 @@ wear_tool :: proc(p: ^Person, item: Item) -> bool {
 		return true
 	}
 	return false
+}
+
+// A bow is a stick strung with twine. A failed attempt wastes the twine.
+craft_bow :: proc(g: ^Game, p: ^Person) -> bool {
+	ingredients := [?]Item{.Stick, .Twine}
+	return craft_recipe(g, p, ingredients[:], .Bow)
+}
+
+// Whittle a short stick to a point with a knife. The knife survives (wearing a little) and a failed
+// attempt wastes the short stick.
+craft_stake :: proc(g: ^Game, p: ^Person) -> bool {
+	if !holds(p^, .Knife) {return false}
+	if !spend(g, p, .Short_Stick, 1) {return false}
+	wear_tool(p, .Knife)
+	if craft_roll(p, .Stake) {give_or_drop(g, p, .Stake)}
+	return true
+}
+
+// A bow and a stake make a fire drill. A failed attempt wastes nothing.
+craft_fire_drill :: proc(g: ^Game, p: ^Person) -> bool {
+	ingredients := [?]Item{.Bow, .Stake}
+	return craft_recipe(g, p, ingredients[:], .Fire_Drill, fail_wastes = false)
+}
+
+// Use up `count` of an item, from hands first and then the ground at the person's feet. Nothing is
+// spent unless all of them are there.
+spend :: proc(g: ^Game, p: ^Person, item: Item, count: int) -> bool {
+	if have_count(g, p^, item) < count {return false}
+	left := count
+	for h in 0 ..< carry_slots(p^) {
+		if left > 0 && p.hands[h] == item {p.hands[h] = .None; left -= 1}
+	}
+	for i := len(g.ground_items) - 1; i >= 0 && left > 0; i -= 1 {
+		it := g.ground_items[i]
+		if it.x == p.x && it.y == p.y && it.item == item {unordered_remove(&g.ground_items, i); left -= 1}
+	}
+	spill_unsupported(g, p)
+	return true
 }
 
 // Put a thing in a free hand, or on the ground at the person's feet if both hands are full.
@@ -406,6 +458,9 @@ describe_ground_items :: proc(g: ^Game, x, y: int, buf: []byte) -> string {
 	if counts[.Spear] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d spear", sep(&b), counts[.Spear])}
 	if counts[.Snake_Corpse] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake corpse", sep(&b), counts[.Snake_Corpse])}
 	if counts[.Snake_Meat] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake meat", sep(&b), counts[.Snake_Meat])}
+	if counts[.Bow] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d bow", sep(&b), counts[.Bow])}
+	if counts[.Stake] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d stake", sep(&b), counts[.Stake])}
+	if counts[.Fire_Drill] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d fire drill", sep(&b), counts[.Fire_Drill])}
 	if counts[.Reed] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d reed", sep(&b), counts[.Reed])}
 	if counts[.Basket] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d basket", sep(&b), counts[.Basket])}
 	if counts[.Snake_Skin] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake skin", sep(&b), counts[.Snake_Skin])}

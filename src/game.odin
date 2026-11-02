@@ -16,6 +16,7 @@ Terrain :: enum u8 {
 	Pond,
 	Stone_Field,
 	Dirt,
+	Fire_Pit, // built by people; nobody can walk on it
 }
 
 TERRAIN_NAMES := [Terrain]string {
@@ -25,6 +26,7 @@ TERRAIN_NAMES := [Terrain]string {
 	.Pond  = "Pond",
 	.Stone_Field = "Stone field",
 	.Dirt  = "Dirt",
+	.Fire_Pit = "Fire pit",
 }
 
 TERRAIN_WEIGHTS := [Terrain]int {
@@ -34,6 +36,7 @@ TERRAIN_WEIGHTS := [Terrain]int {
 	.Pond  = 1,
 	.Stone_Field = 3, // between pond and bush
 	.Dirt  = 0, // only appears when a stone field is used up
+	.Fire_Pit = 0, // only people build these
 }
 
 Game :: struct {
@@ -54,6 +57,7 @@ Game :: struct {
 	bushes_updated_hours: f64,
 	sticks:           []f32, // parallel to cells; sticks left where the cell is a Tree
 	fiber:            []f32, // parallel to cells; plant fiber left where the cell is Grass
+	fuel:             []f32, // parallel to cells; sticks' worth of fuel where the cell is a Fire_Pit
 	reeds:            []f32, // parallel to cells; reeds left where the cell is a Pond
 	stone:            []f32, // parallel to cells; stone left where the cell is a Stone_Field
 	terrain_updated_hours: f64,
@@ -102,6 +106,7 @@ game_init_rect :: proc(g: ^Game, width, height: int) {
 	g.fiber = make([]f32, width * height)
 	g.sticks = make([]f32, width * height)
 	g.reeds = make([]f32, width * height)
+	g.fuel = make([]f32, width * height)
 	for t, i in g.cells {
 		if t == .Bush {g.bushes[i] = roll_bush()}
 		if t == .Stone_Field {g.stone[i] = STONE_FIELD_AMOUNT}
@@ -132,6 +137,7 @@ game_destroy :: proc(g: ^Game) {
 	delete(g.fiber)
 	delete(g.sticks)
 	delete(g.reeds)
+	delete(g.fuel)
 	delete(g.ground_items)
 	delete(g.snakes)
 }

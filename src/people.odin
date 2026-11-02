@@ -28,6 +28,10 @@ Item :: enum u8 {
 	Snake_Skin,
 	Reed,
 	Basket,
+	Bow,
+	Stake,
+	Fire_Drill,
+	Fire_Pit, // never held or dropped: it is built on the ground, and is here so people can be credited with making one
 }
 
 DEFAULT_HANDS :: 2
@@ -52,6 +56,9 @@ Person :: struct {
 	hand_count:      int, // how many hands; one item per hand, and a held basket adds BASKET_SLOTS more places
 	hands:           [MAX_SLOTS]Item, // the first hand_count are hands; the rest are in a basket, usable only while one is held
 	wear:            [MAX_SLOTS]int, // uses a held tool has been through; reset when a new one is made into that hand
+	dopamine:        f32, // 0 to MAX_DOPAMINE: mood; crafting raises it, time bleeds it off; see mood.odin
+	site_x, site_y:  int, // where a firepit's pile of materials is being gathered
+	has_site:        bool,
 	age_years:       f32, // grows with game time; the calendar decides how long a year is
 	lifespan_years:  f32, // dies of old age on reaching this; 0 means never
 	poison_hours:    f32, // hours of poison left; health drains while it lasts
@@ -202,7 +209,7 @@ spawn_person :: proc(g: ^Game, sex: Sex) -> bool {
 	for _ in 0 ..< 10000 {
 		x, y := rand.int_max(g.width), rand.int_max(g.height)
 		if can_enter(g, x, y) {
-			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), ranged = random_skill(), age_years = START_AGE_MIN + rand.float32() * (START_AGE_MAX - START_AGE_MIN), lifespan_years = random_lifespan(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
+			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), ranged = random_skill(), dopamine = START_DOPAMINE, age_years = START_AGE_MIN + rand.float32() * (START_AGE_MAX - START_AGE_MIN), lifespan_years = random_lifespan(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
 			return true
 		}
 	}
@@ -218,7 +225,7 @@ update_people :: proc(g: ^Game) {
 				p.next_move_hours = next_step_time(p.next_move_hours)
 				continue
 			}
-			if !hunt_snake(g, &p) && !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !skin_snake(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_spear(g, &p) && !craft_basket(g, &p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_reed_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
+			if !hunt_snake(g, &p) && !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !skin_snake(g, &p) && !pursue_goal(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_spear(g, &p) && !craft_basket(g, &p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_reed_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x
@@ -292,6 +299,7 @@ update_vitals :: proc(g: ^Game) {
 		p := &g.people[i]
 		step_vitals(p, elapsed)
 		died_of_age := step_age(p, elapsed, f32(hours_per_year(g.cfg)))
+		step_dopamine(p, elapsed)
 		if p.health <= 0 || died_of_age {kill_person(g, i)}
 	}
 }

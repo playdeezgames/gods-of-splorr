@@ -35,6 +35,47 @@ take_fiber :: proc(g: ^Game, x, y: int) -> f32 {
 
 // Trees carry sticks that people can gather from beside them. A tree stays a tree when it is
 // picked bare, and regrows its sticks very slowly (fiber regrows ten times faster).
+// A firepit is built from stone and sticks on an empty cell beside the builder, and holds fuel
+// measured in sticks' worth. It is not walkable.
+FIRE_PIT_STONES :: 8
+FIRE_PIT_STICKS :: 8
+FIRE_PIT_FUEL :: 8.0
+
+fuel_at :: proc(g: ^Game, x, y: int) -> (f32, bool) {
+	if !in_bounds(g, x, y) || terrain_at(g, x, y) != .Fire_Pit {return 0, false}
+	return g.fuel[y * g.width + x], true
+}
+
+nothing_lies_on :: proc(g: ^Game, x, y: int) -> bool {
+	for it in g.ground_items {
+		if it.x == x && it.y == y {return false}
+	}
+	return true
+}
+
+// A cell next to (x, y) where a firepit could go: open ground with nobody and nothing on it.
+pit_spot :: proc(g: ^Game, x, y: int) -> (px, py: int, ok: bool) {
+	for d in DIRS {
+		if can_enter(g, x + d.x, y + d.y) && nothing_lies_on(g, x + d.x, y + d.y) {
+			return x + d.x, y + d.y, true
+		}
+	}
+	return 0, 0, false
+}
+
+// Build a firepit on a free cell beside the person from stone and sticks in hand or at their feet.
+build_fire_pit :: proc(g: ^Game, p: ^Person) -> bool {
+	if have_count(g, p^, .Stone) < FIRE_PIT_STONES || have_count(g, p^, .Stick) < FIRE_PIT_STICKS {return false}
+	px, py, ok := pit_spot(g, p.x, p.y)
+	if !ok {return false}
+	spend(g, p, .Stone, FIRE_PIT_STONES)
+	spend(g, p, .Stick, FIRE_PIT_STICKS)
+	clear_cell(g, px, py, .Fire_Pit)
+	g.fuel[py * g.width + px] = FIRE_PIT_FUEL
+	craft_credit(p, .Fire_Pit)
+	return true
+}
+
 // Ponds grow reeds that a person with a knife can cut. They regrow slowly up to a maximum.
 REEDS_PER_POND :: 6
 REED_REGROW_PER_HOUR :: 0.03
