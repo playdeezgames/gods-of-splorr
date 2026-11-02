@@ -85,6 +85,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 		update_ground_items(&game)
 		update_corpses(&game)
 		update_vitals(&game)
+		update_faith(&game)
 	}
 	draw()
 	return true
@@ -223,6 +224,12 @@ draw :: proc() {
 		d.year, d.month, d.day, d.hour, d.minute, SEASON_NAMES[d.season],
 		temperature_c(game.clock, game.cfg), speed,
 	)
+	pbuf: [120]byte
+	cs = fmt.bprintf(
+		pbuf[:],
+		"%s\nFaith %.0f  [1] %s %.0f  [2] %s %.0f",
+		cs, game.faith, POWER_NAMES[.Manna], POWER_COSTS[.Manna], POWER_NAMES[.Smite], POWER_COSTS[.Smite],
+	)
 	set_clock(raw_data(cs), i32(len(cs)))
 
 	obuf: [200]byte
@@ -309,6 +316,12 @@ on_speed :: proc "c" (delta: i32) {
 on_pause :: proc "c" () {
 	context = ctx
 	game.clock.paused = !game.clock.paused
+}
+
+@(export)
+on_power :: proc "c" (power: i32) {
+	context = ctx
+	if power >= 0 && power < len(Power) {use_power(&game, Power(power))}
 }
 
 @(export)

@@ -57,6 +57,8 @@ Game :: struct {
 	stone:            []f32, // parallel to cells; stone left where the cell is a Stone_Field
 	terrain_updated_hours: f64,
 	ground_items:     [dynamic]Ground_Item, // things people have dropped
+	faith:            f32, // the god's power to act; see powers.odin
+	faith_updated_hours: f64,
 }
 
 pick_weighted :: proc(weights: [$E]int) -> E {
@@ -92,6 +94,7 @@ game_init_rect :: proc(g: ^Game, width, height: int) {
 	g.bushes_updated_hours = g.clock.hours
 	g.vitals_updated_hours = g.clock.hours
 	g.terrain_updated_hours = g.clock.hours
+	g.faith, g.faith_updated_hours = START_FAITH, g.clock.hours
 	g.stone = make([]f32, width * height)
 	g.fiber = make([]f32, width * height)
 	g.sticks = make([]f32, width * height)

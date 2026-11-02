@@ -255,11 +255,15 @@ update_vitals :: proc(g: ^Game) {
 	for i := len(g.people) - 1; i >= 0; i -= 1 {
 		p := &g.people[i]
 		step_vitals(p, elapsed)
-		if p.health <= 0 {
-			append(&g.corpses, Corpse{x = p.x, y = p.y, sex = p.sex, melanin = p.melanin, died_hours = g.clock.hours})
-			ordered_remove(&g.people, i)
-		}
+		if p.health <= 0 {kill_person(g, i)}
 	}
+}
+
+// Remove person i from the living and leave a corpse where they stood.
+kill_person :: proc(g: ^Game, i: int) {
+	p := g.people[i]
+	append(&g.corpses, Corpse{x = p.x, y = p.y, sex = p.sex, melanin = p.melanin, died_hours = g.clock.hours})
+	ordered_remove(&g.people, i)
 }
 
 corpse_at :: proc(g: ^Game, x, y: int) -> int {

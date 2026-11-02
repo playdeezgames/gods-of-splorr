@@ -46,7 +46,7 @@
   Tiles: Urizen 1-bit tileset by vurmux (CC0). Made by Claude, an AI agent, working with the developer.
   <a href="https://thegrumpygamedev.itch.io/">itch.io</a> · <a href="https://playdeezgames.github.io/oeuvre-of-splorr/">more games</a>
 </footer>
-<div id="help">Arrows/WASD: move cursor · Mouse: hover, wheel or drag to scroll · Space: pause · +/-: speed · C: credits · Gamepad: d-pad / stick, bumpers speed, Start pause</div>
+<div id="help">Arrows/WASD: move cursor · Mouse: hover, wheel or drag to scroll · Space: pause · +/-: speed · 1/2: powers · C: credits · Gamepad: d-pad / stick, bumpers speed, Start pause, X/Y powers</div>
 <script src="odin.js"></script>
 <script>
 const COLS = 20, ROWS = 15, TILE = 12, GAP = 13;
@@ -156,6 +156,7 @@ const toggleCredits = (on) => stageEl.classList.toggle("show-credits", on);
 creditsEl.addEventListener("click", (e) => { if (e.target.tagName !== "A") toggleCredits(false); });
 window.addEventListener("keydown", (e) => {
   if (e.key === "c" || e.key === "C") { toggleCredits(!stageEl.classList.contains("show-credits")); return; }
+  if (e.key === "1" || e.key === "2") { game().on_power(Number(e.key) - 1); return; }
   if (e.key === "r" || e.key === "R") { game().on_restart(); return; }
   if (e.key === "Escape") { toggleCredits(false); return; }
   if (e.key === " ") { e.preventDefault(); game().on_pause(); return; }
@@ -205,7 +206,7 @@ function pollPad(now) {
     const b = (i) => p.buttons[i] && p.buttons[i].pressed;
     if (b(14) || p.axes[0] < -0.5) dx = -1;
     if (b(15) || p.axes[0] > 0.5) dx = 1;
-    for (const [i, act] of [[5, () => game().on_speed(1)], [4, () => game().on_speed(-1)], [9, () => game().on_pause()], [0, () => game().on_restart()]]) {
+    for (const [i, act] of [[5, () => game().on_speed(1)], [4, () => game().on_speed(-1)], [9, () => game().on_pause()], [0, () => game().on_restart()], [2, () => game().on_power(0)], [3, () => game().on_power(1)]]) {
       if (b(i) && !padHeld[i]) act();
       padHeld[i] = b(i);
     }
