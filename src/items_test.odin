@@ -170,9 +170,9 @@ twine_crafting_works_with_fibers_in_any_hands :: proc(t: ^testing.T) {
 	defer game_destroy(&g)
 	p := &g.people[0]
 	p.hand_count = 4
-	p.hands = {.Stone, .Fiber, .Stick, .Fiber}
+	p.hands = {0 = .Stone, 1 = .Fiber, 2 = .Stick, 3 = .Fiber}
 	testing.expect(t, craft_twine(p), "craft")
-	testing.expect_value(t, p.hands, [MAX_HANDS]Item{.Stone, .Twine, .Stick, .None})
+	testing.expect_value(t, p.hands, [MAX_SLOTS]Item{0 = .Stone, 1 = .Twine, 2 = .Stick})
 }
 
 @(test)
@@ -232,6 +232,7 @@ poor_crafting_wastes_a_fiber :: proc(t: ^testing.T) {
 	p.crafting = 0
 	botched, made := 0, 0
 	for _ in 0 ..< 200 {
+		p.craft_levels = {} // every attempt is an unpracticed one
 		p.hands = {0 = .Fiber, 1 = .Fiber}
 		testing.expect(t, craft_twine(p), "an attempt is made")
 		if p.hands[0] == .Twine {made += 1} else {botched += 1; testing.expect_value(t, held_count(p^), 1)}
@@ -317,6 +318,7 @@ failed_sharp_stone_crafting_loses_one_stone_but_keeps_the_other :: proc(t: ^test
 	p.crafting = 0
 	made, lost := 0, 0
 	for _ in 0 ..< 200 {
+		p.craft_levels = {}
 		p.hands = {0 = .Stone, 1 = .Stone}
 		testing.expect(t, craft_sharp_stone(p), "an attempt is made")
 		testing.expect_value(t, p.hands[0], Item.Stone) // always survives
@@ -349,7 +351,7 @@ sharp_stone_and_stick_make_two_short_sticks :: proc(t: ^testing.T) {
 	p.hand_count = 3
 	p.hands = {0 = .Stick, 1 = .Sharp_Stone}
 	testing.expect(t, craft_short_sticks(&g, p), "craft with a spare hand")
-	testing.expect_value(t, p.hands, [MAX_HANDS]Item{.Short_Stick, .Sharp_Stone, .Short_Stick, .None})
+	testing.expect_value(t, p.hands, [MAX_SLOTS]Item{0 = .Short_Stick, 1 = .Sharp_Stone, 2 = .Short_Stick})
 	testing.expect_value(t, len(g.ground_items), 0)
 	buf: [80]byte
 	append(&g.ground_items, Ground_Item{x = 2, y = 0, item = .Short_Stick, dropped_hours = g.clock.hours})
@@ -366,6 +368,7 @@ failed_cutting_loses_the_stick_but_keeps_the_sharp_stone :: proc(t: ^testing.T) 
 	p.crafting = 0
 	made, lost := 0, 0
 	for _ in 0 ..< 200 {
+		p.craft_levels = {}
 		clear(&g.ground_items)
 		p.hands = {0 = .Sharp_Stone, 1 = .Stick}
 		testing.expect(t, craft_short_sticks(&g, p), "an attempt is made")
@@ -448,6 +451,7 @@ failed_knife_crafting_wastes_only_the_twine :: proc(t: ^testing.T) {
 	p.crafting = 0
 	made, failed := 0, 0
 	for _ in 0 ..< 200 {
+		p.craft_levels = {}
 		clear(&g.ground_items)
 		p.hands = {0 = .Sharp_Stone, 1 = .Twine}
 		drop_at_feet(&g, p^, .Short_Stick)

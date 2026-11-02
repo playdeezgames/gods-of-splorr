@@ -54,6 +54,7 @@ Game :: struct {
 	bushes_updated_hours: f64,
 	sticks:           []f32, // parallel to cells; sticks left where the cell is a Tree
 	fiber:            []f32, // parallel to cells; plant fiber left where the cell is Grass
+	reeds:            []f32, // parallel to cells; reeds left where the cell is a Pond
 	stone:            []f32, // parallel to cells; stone left where the cell is a Stone_Field
 	terrain_updated_hours: f64,
 	ground_items:     [dynamic]Ground_Item, // things people have dropped
@@ -100,11 +101,13 @@ game_init_rect :: proc(g: ^Game, width, height: int) {
 	g.stone = make([]f32, width * height)
 	g.fiber = make([]f32, width * height)
 	g.sticks = make([]f32, width * height)
+	g.reeds = make([]f32, width * height)
 	for t, i in g.cells {
 		if t == .Bush {g.bushes[i] = roll_bush()}
 		if t == .Stone_Field {g.stone[i] = STONE_FIELD_AMOUNT}
 		if t == .Grass {g.fiber[i] = FIBER_PER_GRASS}
 		if t == .Tree {g.sticks[i] = STICKS_PER_TREE}
+		if t == .Pond {g.reeds[i] = REEDS_PER_POND}
 	}
 	spawn_person(g, .Male) // one of each sex guaranteed, the rest random
 	spawn_person(g, .Female)
@@ -128,6 +131,7 @@ game_destroy :: proc(g: ^Game) {
 	delete(g.stone)
 	delete(g.fiber)
 	delete(g.sticks)
+	delete(g.reeds)
 	delete(g.ground_items)
 	delete(g.snakes)
 }

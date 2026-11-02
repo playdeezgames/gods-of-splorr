@@ -111,6 +111,10 @@ draw :: proc() {
 			} else {
 				draw_tile(tile.col, tile.row, px, py, CELL)
 			}
+			if reeds, ok := reeds_at(&game, x, y); ok { // reed bar: how many reeds are left to cut
+				fill_rect(px + 4, py + CELL - 8, CELL - 8, 4, 0, 0, 0, 0.6)
+				fill_rect(px + 4, py + CELL - 8, (CELL - 8) * reeds / REEDS_PER_POND, 4, 0.5, 0.85, 0.4, 1)
+			}
 			if b, ok := bush_at(&game, x, y); ok { // berry bar: how full this bush is
 				fill_rect(px + 4, py + CELL - 8, CELL - 8, 4, 0, 0, 0, 0.6)
 				fill_rect(px + 4, py + CELL - 8, (CELL - 8) * b.food / b.max_food, 4, 0.9, 0.15, 0.25, 1)
@@ -134,6 +138,8 @@ draw :: proc() {
 		case .Short_Stick: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.35 * fade, 1)
 		case .Knife: fill_rect(ix, iy, 8, 8, 0.95, 0.95, 0.4, 1)
 		case .Spear: fill_rect(ix, iy, 8, 8, 0.95, 0.6, 0.2, 1)
+		case .Reed: fill_rect(ix, iy, 8, 8, 0.5 * fade, 0.85 * fade, 0.4 * fade, 1)
+		case .Basket: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.25 * fade, 1)
 		case .Snake_Corpse: fill_rect(ix, iy, 8, 8, 0.2 + 0.2 * fade, 0.5 * fade, 0.15, 1)
 		case .Snake_Meat: fill_rect(ix, iy, 8, 8, 0.95 * fade, 0.55 * fade, 0.6 * fade, 1)
 		case .Snake_Skin: fill_rect(ix, iy, 8, 8, 0.3 * fade, 0.7 * fade, 0.5 * fade, 1)
@@ -171,18 +177,23 @@ draw :: proc() {
 		if p.asleep {c *= 0.5} // sleepers are dimmed
 		draw_tile_tinted(tile.col, tile.row, f32(vx * CELL), f32(vy * CELL), CELL, c.r, c.g, c.b)
 		if p.poison_hours > 0 {fill_rect(f32(vx * CELL + 2), f32(vy * CELL + 2), 8, 8, 0.3, 0.9, 0.2, 1)} // poisoned
-		for h in 0 ..< p.hand_count { // a marker for each hand that holds something
-			hx, hy := f32(vx * CELL + 2 + h * 12), f32(vy * CELL + CELL - 10)
+		slots := carry_slots(p)
+		step := min(f32(12), f32(CELL - 4) / f32(slots)) // a basket makes room for more markers, so squeeze them
+		size := min(f32(8), step - 1)
+		for h in 0 ..< slots { // a marker for each place that holds something
+			hx, hy := f32(vx * CELL + 2) + f32(h) * step, f32(vy * CELL + CELL - 10)
 			#partial switch p.hands[h] {
-			case .Food: fill_rect(hx, hy, 8, 8, 0.9, 0.15, 0.25, 1)
-			case .Stone: fill_rect(hx, hy, 8, 8, 0.7, 0.7, 0.75, 1)
-			case .Fiber: fill_rect(hx, hy, 8, 8, 0.75, 0.85, 0.35, 1)
-			case .Stick: fill_rect(hx, hy, 8, 8, 0.6, 0.4, 0.2, 1)
-			case .Twine: fill_rect(hx, hy, 8, 8, 0.9, 0.75, 0.5, 1)
-			case .Sharp_Stone: fill_rect(hx, hy, 8, 8, 0.85, 0.95, 1, 1)
-			case .Short_Stick: fill_rect(hx, hy, 8, 8, 0.8, 0.6, 0.35, 1)
-			case .Knife: fill_rect(hx, hy, 8, 8, 0.95, 0.95, 0.4, 1)
-			case .Spear: fill_rect(hx, hy, 8, 8, 0.95, 0.6, 0.2, 1)
+			case .Food: fill_rect(hx, hy, size, size, 0.9, 0.15, 0.25, 1)
+			case .Stone: fill_rect(hx, hy, size, size, 0.7, 0.7, 0.75, 1)
+			case .Fiber: fill_rect(hx, hy, size, size, 0.75, 0.85, 0.35, 1)
+			case .Stick: fill_rect(hx, hy, size, size, 0.6, 0.4, 0.2, 1)
+			case .Twine: fill_rect(hx, hy, size, size, 0.9, 0.75, 0.5, 1)
+			case .Sharp_Stone: fill_rect(hx, hy, size, size, 0.85, 0.95, 1, 1)
+			case .Short_Stick: fill_rect(hx, hy, size, size, 0.8, 0.6, 0.35, 1)
+			case .Knife: fill_rect(hx, hy, size, size, 0.95, 0.95, 0.4, 1)
+			case .Spear: fill_rect(hx, hy, size, size, 0.95, 0.6, 0.2, 1)
+			case .Reed: fill_rect(hx, hy, size, size, 0.5, 0.85, 0.4, 1)
+			case .Basket: fill_rect(hx, hy, size, size, 0.8, 0.6, 0.25, 1)
 			}
 		}
 	}
@@ -206,6 +217,8 @@ draw :: proc() {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Tree  -  Sticks %.1f / %.0f", game.cursor_x, game.cursor_y, sticks, f32(STICKS_PER_TREE))
 	} else if fiber, ok := fiber_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Grass  -  Fiber %.1f / %.0f", game.cursor_x, game.cursor_y, fiber, f32(FIBER_PER_GRASS))
+	} else if reeds, ok := reeds_at(&game, game.cursor_x, game.cursor_y); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Pond  -  Reeds %.1f / %.0f", game.cursor_x, game.cursor_y, reeds, f32(REEDS_PER_POND))
 	} else if left, ok := stone_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Stone field  -  Stone %.0f / %.0f", game.cursor_x, game.cursor_y, left, f32(STONE_FIELD_AMOUNT))
 	} else if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
@@ -221,11 +234,14 @@ draw :: proc() {
 		p := game.people[i]
 		s = fmt.bprintf(
 			buf[:],
-			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f\nStomach %.0f  Energy %.0f\nSleeps %.1fh  Hands %d/%d\nForaging %.0f  Crafting %.0f  Ranged %.0f",
+			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f\nStomach %.0f  Energy %.0f\nSleeps %.1fh  Carrying %d/%d\nForaging %.0f  Crafting %.0f  Ranged %.0f",
 			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
-			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count, p.foraging, p.crafting, p.ranged,
+			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), carry_slots(p), p.foraging, p.crafting, p.ranged,
 		)
 		s = fmt.tprintf("%s\nAge %.0f of %.0f", s, p.age_years, p.lifespan_years)
+		if made := describe_craft_levels(p); len(made) > 0 {
+			s = fmt.tprintf("%s\nCrafted: %s", s, made)
+		}
 		if p.poison_hours > 0 {
 			s = fmt.tprintf("%s\nPoisoned for %.1fh", s, p.poison_hours)
 		}

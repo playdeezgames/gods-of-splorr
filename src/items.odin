@@ -31,6 +31,8 @@ SPOIL_HOURS := [Item]f64 {
 	.Snake_Corpse = FOOD_SPOIL_HOURS,
 	.Snake_Meat = FOOD_SPOIL_HOURS,
 	.Snake_Skin = TWINE_SPOIL_HOURS,
+	.Reed = TWINE_SPOIL_HOURS,
+	.Basket = STICK_SPOIL_HOURS,
 }
 DROP_CHANCE :: 0.02 // chance per action that a person carrying something simply sets it down
 
@@ -43,10 +45,21 @@ ground_freshness :: proc(g: ^Game, it: Ground_Item) -> f32 {
 
 // Put whatever is in hand `hand` on the ground at the person's feet.
 drop_item :: proc(g: ^Game, p: ^Person, hand: int) -> bool {
-	if hand < 0 || hand >= p.hand_count || p.hands[hand] == .None {return false}
+	if hand < 0 || hand >= carry_slots(p^) || p.hands[hand] == .None {return false}
 	append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = p.hands[hand], dropped_hours = g.clock.hours})
 	p.hands[hand] = .None
+	spill_unsupported(g, p)
 	return true
+}
+
+// Without a basket in hand, whatever was riding in its places falls to the ground at the person's feet.
+spill_unsupported :: proc(g: ^Game, p: ^Person) {
+	if has_basket(p^) {return}
+	for i in p.hand_count ..< MAX_SLOTS {
+		if p.hands[i] == .None {continue}
+		append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = p.hands[i], dropped_hours = g.clock.hours})
+		p.hands[i] = .None
+	}
 }
 
 // Remove dropped things that have had time to rot away.
@@ -68,15 +81,52 @@ gather_stone_here :: proc(g: ^Game, p: ^Person) -> bool {
 	return true
 }
 
+// Crafting an item well takes practice: the check for an item adds the person's level at that item
+// (one point per success so far) to their crafting skill, and every success raises that level by one.
+craft_roll :: proc(p: ^Person, item: Item) -> bool {
+	if !skill_succeeds(p.crafting + f32(p.craft_levels[item])) {return false}
+	p.craft_levels[item] += 1
+	return true
+}
+
+// "twine 5, knife 2" for what a person has made, or "" if they have made nothing.
+describe_craft_levels :: proc(p: Person) -> string {
+	s := ""
+	for item in Item {
+		if p.craft_levels[item] > 0 {
+			s = fmt.tprintf("%s%s%s %d", s, ", " if len(s) > 0 else "", ITEM_NAMES[item], p.craft_levels[item])
+		}
+	}
+	return s
+}
+
+ITEM_NAMES := [Item]string {
+	.None = "nothing",
+	.Food = "food",
+	.Stone = "stone",
+	.Fiber = "fiber",
+	.Stick = "stick",
+	.Twine = "twine",
+	.Sharp_Stone = "sharp stone",
+	.Short_Stick = "short stick",
+	.Knife = "knife",
+	.Spear = "spear",
+	.Snake_Corpse = "snake corpse",
+	.Snake_Meat = "snake meat",
+	.Snake_Skin = "snake skin",
+	.Reed = "reed",
+	.Basket = "basket",
+}
+
 // Twist two plant fibers held in hand into one twine, which takes one hand and frees the other.
 craft_twine :: proc(p: ^Person) -> bool {
 	first, second := -1, -1
-	for h in 0 ..< p.hand_count {
+	for h in 0 ..< carry_slots(p^) {
 		if p.hands[h] != .Fiber {continue}
 		if first < 0 {first = h} else {second = h; break}
 	}
 	if second < 0 {return false}
-	if !skill_succeeds(p.crafting) { // a botched twist wastes a fiber
+	if !craft_roll(p, .Twine) { // a botched twist wastes a fiber
 		p.hands[second] = .None
 		return true
 	}
@@ -89,12 +139,12 @@ craft_twine :: proc(p: ^Person) -> bool {
 // attempt fails the would-be sharp stone is lost, leaving just the one stone.
 craft_sharp_stone :: proc(p: ^Person) -> bool {
 	first, second := -1, -1
-	for h in 0 ..< p.hand_count {
+	for h in 0 ..< carry_slots(p^) {
 		if p.hands[h] != .Stone {continue}
 		if first < 0 {first = h} else {second = h; break}
 	}
 	if second < 0 {return false}
-	p.hands[second] = .Sharp_Stone if skill_succeeds(p.crafting) else .None
+	p.hands[second] = .Sharp_Stone if craft_roll(p, .Sharp_Stone) else .None
 	return true
 }
 
@@ -103,12 +153,12 @@ craft_sharp_stone :: proc(p: ^Person) -> bool {
 // at the person's feet. If the attempt fails the stick is lost and the sharp stone kept.
 craft_short_sticks :: proc(g: ^Game, p: ^Person) -> bool {
 	sharp, stick := -1, -1
-	for h in 0 ..< p.hand_count {
+	for h in 0 ..< carry_slots(p^) {
 		if p.hands[h] == .Sharp_Stone && sharp < 0 {sharp = h}
 		if p.hands[h] == .Stick && stick < 0 {stick = h}
 	}
 	if sharp < 0 || stick < 0 {return false}
-	if !skill_succeeds(p.crafting) {
+	if !craft_roll(p, .Short_Stick) {
 		p.hands[stick] = .None
 		return true
 	}
@@ -128,54 +178,70 @@ KNIFE_INGREDIENTS :: [3]Item{.Sharp_Stone, .Short_Stick, .Twine} // a sharp ston
 SPEAR_INGREDIENTS :: [3]Item{.Sharp_Stone, .Stick, .Twine} // a sharp stone bound to a long stick
 
 craft_knife :: proc(g: ^Game, p: ^Person) -> bool {
-	return craft_recipe(g, p, KNIFE_INGREDIENTS, .Knife)
+	ingredients := KNIFE_INGREDIENTS
+	return craft_recipe(g, p, ingredients[:], .Knife)
 }
 
 // One spear each is plenty.
 craft_spear :: proc(g: ^Game, p: ^Person) -> bool {
 	if holds(p^, .Spear) {return false}
-	return craft_recipe(g, p, SPEAR_INGREDIENTS, .Spear)
+	ingredients := SPEAR_INGREDIENTS
+	return craft_recipe(g, p, ingredients[:], .Spear)
 }
 
-craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: [3]Item, result: Item) -> bool {
-	hand_of: [3]int = -1 // where each ingredient was found: a hand index...
-	ground_of: [3]int = -1 // ...or an index into ground_items
-	used_hand: [MAX_HANDS]bool
-	for item, n in ingredients {
-		for h in 0 ..< p.hand_count {
+// Five reeds woven together make a basket. A person carries only one, and a clumsy weave ruins a reed.
+BASKET_REEDS :: 5
+
+craft_basket :: proc(g: ^Game, p: ^Person) -> bool {
+	if holds(p^, .Basket) {return false}
+	ingredients: [BASKET_REEDS]Item
+	for &item in ingredients {item = .Reed}
+	return craft_recipe(g, p, ingredients[:], .Basket)
+}
+
+MAX_INGREDIENTS :: 8
+
+craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item) -> bool {
+	n := len(ingredients)
+	hand_of: [MAX_INGREDIENTS]int = -1 // where each ingredient was found: a hand index...
+	ground_of: [MAX_INGREDIENTS]int = -1 // ...or an index into ground_items
+	used_hand: [MAX_SLOTS]bool
+	for item, k in ingredients {
+		for h in 0 ..< carry_slots(p^) {
 			if p.hands[h] == item && !used_hand[h] {
-				hand_of[n], used_hand[h] = h, true
+				hand_of[k], used_hand[h] = h, true
 				break
 			}
 		}
-		if hand_of[n] >= 0 {continue}
+		if hand_of[k] >= 0 {continue}
 		for it, i in g.ground_items {
 			if it.x != p.x || it.y != p.y || it.item != item {continue}
 			taken := false
-			for other in ground_of {taken ||= other == i}
+			for other in ground_of[:n] {taken ||= other == i}
 			if !taken {
-				ground_of[n] = i
+				ground_of[k] = i
 				break
 			}
 		}
-		if ground_of[n] < 0 {return false}
+		if ground_of[k] < 0 {return false}
 	}
-	// Work out what is spent: everything on success, only the twine (the last ingredient) on failure.
-	success := skill_succeeds(p.crafting)
-	first := 0 if success else 2
-	remove_ground: [3]int = -1
-	for n in first ..< 3 {
-		if hand_of[n] >= 0 {p.hands[hand_of[n]] = .None}
-		remove_ground[n] = ground_of[n]
+	// Work out what is spent: everything on success, only the last ingredient on failure.
+	success := craft_roll(p, result)
+	first := 0 if success else n - 1
+	remove_ground: [MAX_INGREDIENTS]int = -1
+	for k in first ..< n {
+		if hand_of[k] >= 0 {p.hands[hand_of[k]] = .None}
+		remove_ground[k] = ground_of[k]
 	}
 	for i := len(g.ground_items) - 1; i >= 0; i -= 1 { // highest index first keeps the others valid
-		for r in remove_ground {
+		for r in remove_ground[:n] {
 			if r == i {
 				unordered_remove(&g.ground_items, i)
 				break
 			}
 		}
 	}
+	spill_unsupported(g, p)
 	if !success {return true}
 	give_or_drop(g, p, result)
 	return true
@@ -196,7 +262,7 @@ durability_of :: proc(item: Item) -> int {
 
 // Uses left in the first held tool of this kind, and whether one is held at all.
 uses_left :: proc(p: Person, item: Item) -> (int, bool) {
-	for h in 0 ..< p.hand_count {
+	for h in 0 ..< carry_slots(p) {
 		if p.hands[h] == item {return durability_of(item) - p.wear[h], true}
 	}
 	return 0, false
@@ -204,7 +270,7 @@ uses_left :: proc(p: Person, item: Item) -> (int, bool) {
 
 // Wear the first held tool of this kind by one use. Returns true if that broke it.
 wear_tool :: proc(p: ^Person, item: Item) -> bool {
-	for h in 0 ..< p.hand_count {
+	for h in 0 ..< carry_slots(p^) {
 		if p.hands[h] != item {continue}
 		p.wear[h] += 1
 		if p.wear[h] < durability_of(item) {return false}
@@ -224,7 +290,7 @@ give_or_drop :: proc(g: ^Game, p: ^Person, item: Item) {
 }
 
 holds :: proc(p: Person, item: Item) -> bool {
-	for h in 0 ..< p.hand_count {
+	for h in 0 ..< carry_slots(p) {
 		if p.hands[h] == item {return true}
 	}
 	return false
@@ -248,6 +314,27 @@ gather_stick :: proc(g: ^Game, p: ^Person, tx, ty: int) -> bool {
 gather_stick_adjacent :: proc(g: ^Game, p: ^Person) -> bool {
 	for d in DIRS {
 		if gather_stick(g, p, p.x + d.x, p.y + d.y) {return true}
+	}
+	return false
+}
+
+// With a knife in hand, cut one reed from the pond at (px, py): the person must be orthogonally
+// next to it and the pond must hold a whole reed. The reed goes in a free place, or onto the ground
+// at the person's feet. Each cut wears the knife.
+gather_reed :: proc(g: ^Game, p: ^Person, px, py: int) -> bool {
+	if !holds(p^, .Knife) {return false}
+	if abs(p.x - px) + abs(p.y - py) != 1 {return false}
+	if left, ok := reeds_at(g, px, py); !ok || left < 1 {return false}
+	if !skill_succeeds(p.foraging) {return true} // fumbled it; nothing cut
+	g.reeds[py * g.width + px] -= 1
+	give_or_drop(g, p, .Reed)
+	wear_tool(p, .Knife)
+	return true
+}
+
+gather_reed_adjacent :: proc(g: ^Game, p: ^Person) -> bool {
+	for d in DIRS {
+		if gather_reed(g, p, p.x + d.x, p.y + d.y) {return true}
 	}
 	return false
 }
@@ -286,13 +373,13 @@ next_to_food_bush :: proc(g: ^Game, p: Person) -> bool {
 // drop something that is not food to make room for food; otherwise there is a small chance they drop something.
 drop_something :: proc(g: ^Game, p: ^Person) -> bool {
 	if free_hand(p^) < 0 && next_to_food_bush(g, p^) {
-		for h in 0 ..< p.hand_count {
-			if p.hands[h] != .Food && p.hands[h] != .None {return drop_item(g, p, h)}
+		for h in 0 ..< carry_slots(p^) {
+			if p.hands[h] != .Food && p.hands[h] != .None && p.hands[h] != .Basket {return drop_item(g, p, h)}
 		}
 	}
 	if held_count(p^) > 0 && rand.float32() < DROP_CHANCE {
-		for h in 0 ..< p.hand_count {
-			if p.hands[h] != .None {return drop_item(g, p, h)}
+		for h in 0 ..< carry_slots(p^) {
+			if p.hands[h] != .None && p.hands[h] != .Basket {return drop_item(g, p, h)}
 		}
 	}
 	return false
@@ -319,6 +406,8 @@ describe_ground_items :: proc(g: ^Game, x, y: int, buf: []byte) -> string {
 	if counts[.Spear] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d spear", sep(&b), counts[.Spear])}
 	if counts[.Snake_Corpse] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake corpse", sep(&b), counts[.Snake_Corpse])}
 	if counts[.Snake_Meat] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake meat", sep(&b), counts[.Snake_Meat])}
+	if counts[.Reed] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d reed", sep(&b), counts[.Reed])}
+	if counts[.Basket] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d basket", sep(&b), counts[.Basket])}
 	if counts[.Snake_Skin] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake skin", sep(&b), counts[.Snake_Skin])}
 	if counts[.Twine] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d twine", sep(&b), counts[.Twine])}
 	if counts[.Food] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d food (%.0f%% fresh)", sep(&b), counts[.Food], 100 * fresh / f32(counts[.Food]))}

@@ -76,5 +76,5 @@ use_power :: proc(g: ^Game, power: Power) -> bool {
 clear_cell :: proc(g: ^Game, x, y: int, to: Terrain) {
 	i := y * g.width + x
 	g.cells[i] = to
-	g.bushes[i], g.fiber[i], g.stone[i], g.sticks[i] = {}, 0, 0, 0
+	g.bushes[i], g.fiber[i], g.stone[i], g.sticks[i], g.reeds[i] = {}, 0, 0, 0, 0
 }

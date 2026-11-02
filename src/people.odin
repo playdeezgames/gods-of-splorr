@@ -26,10 +26,14 @@ Item :: enum u8 {
 	Snake_Corpse,
 	Snake_Meat,
 	Snake_Skin,
+	Reed,
+	Basket,
 }
 
 DEFAULT_HANDS :: 2
 MAX_HANDS :: 4
+BASKET_SLOTS :: 3 // extra places to carry things while a basket is held
+MAX_SLOTS :: MAX_HANDS + BASKET_SLOTS
 
 Person :: struct {
 	x, y:            int,
@@ -43,10 +47,11 @@ Person :: struct {
 	asleep:          bool,
 	foraging:        f32, // skill 0 to 100: chance of success when gathering food, fiber, sticks, stone
 	crafting:        f32, // skill 0 to 100: chance of success when crafting
+	craft_levels:    [Item]int, // successes at crafting each item; each adds a point to the next check for that item
 	ranged:          f32, // skill 0 to 100: aim with a spear, set against a snake's dodge
-	hand_count:      int, // how many hands, so how many items can be carried; one item per hand
-	hands:           [MAX_HANDS]Item,
-	wear:            [MAX_HANDS]int, // uses a held tool has been through; reset when a new one is made into that hand
+	hand_count:      int, // how many hands; one item per hand, and a held basket adds BASKET_SLOTS more places
+	hands:           [MAX_SLOTS]Item, // the first hand_count are hands; the rest are in a basket, usable only while one is held
+	wear:            [MAX_SLOTS]int, // uses a held tool has been through; reset when a new one is made into that hand
 	age_years:       f32, // grows with game time; the calendar decides how long a year is
 	lifespan_years:  f32, // dies of old age on reaching this; 0 means never
 	poison_hours:    f32, // hours of poison left; health drains while it lasts
@@ -213,7 +218,7 @@ update_people :: proc(g: ^Game) {
 				p.next_move_hours = next_step_time(p.next_move_hours)
 				continue
 			}
-			if !hunt_snake(g, &p) && !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !skin_snake(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_spear(g, &p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
+			if !hunt_snake(g, &p) && !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !skin_snake(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_spear(g, &p) && !craft_basket(g, &p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_reed_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x
@@ -305,8 +310,21 @@ corpse_at :: proc(g: ^Game, x, y: int) -> int {
 	return -1
 }
 
+// A basket is carried in a hand and adds places to carry things. Only one counts.
+has_basket :: proc(p: Person) -> bool {
+	for h in 0 ..< p.hand_count {
+		if p.hands[h] == .Basket {return true}
+	}
+	return false
+}
+
+// How many things a person can carry: a hand each, plus the basket's places while one is held.
+carry_slots :: proc(p: Person) -> int {
+	return p.hand_count + (BASKET_SLOTS if has_basket(p) else 0)
+}
+
 free_hand :: proc(p: Person) -> int {
-	for i in 0 ..< p.hand_count {
+	for i in 0 ..< carry_slots(p) {
 		if p.hands[i] == .None {return i}
 	}
 	return -1
@@ -314,7 +332,7 @@ free_hand :: proc(p: Person) -> int {
 
 held_count :: proc(p: Person) -> int {
 	n := 0
-	for i in 0 ..< p.hand_count {
+	for i in 0 ..< carry_slots(p) {
 		if p.hands[i] != .None {n += 1}
 	}
 	return n
@@ -346,7 +364,7 @@ gather_adjacent :: proc(g: ^Game, p: ^Person) -> bool {
 // Eat one food item from a hand: it empties the hand and fills the stomach (capped).
 eat_food :: proc(p: ^Person) -> bool {
 	if p.stomach >= MAX_STOMACH {return false}
-	for i in 0 ..< p.hand_count {
+	for i in 0 ..< carry_slots(p^) {
 		if p.hands[i] == .Food {
 			p.hands[i] = .None
 			p.stomach = min(p.stomach + FOOD_STOMACH, MAX_STOMACH)

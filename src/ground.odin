@@ -35,6 +35,15 @@ take_fiber :: proc(g: ^Game, x, y: int) -> f32 {
 
 // Trees carry sticks that people can gather from beside them. A tree stays a tree when it is
 // picked bare, and regrows its sticks very slowly (fiber regrows ten times faster).
+// Ponds grow reeds that a person with a knife can cut. They regrow slowly up to a maximum.
+REEDS_PER_POND :: 6
+REED_REGROW_PER_HOUR :: 0.03
+
+reeds_at :: proc(g: ^Game, x, y: int) -> (f32, bool) {
+	if !in_bounds(g, x, y) || terrain_at(g, x, y) != .Pond {return 0, false}
+	return g.reeds[y * g.width + x], true
+}
+
 STICKS_PER_TREE :: 3
 STICK_REGROW_PER_HOUR :: 0.002
 
@@ -79,6 +88,9 @@ update_ground :: proc(g: ^Game) {
 	}
 	for t, i in g.cells {
 		if t == .Tree {g.sticks[i] = min(g.sticks[i] + STICK_REGROW_PER_HOUR * f32(elapsed), STICKS_PER_TREE)}
+	}
+	for t, i in g.cells {
+		if t == .Pond {g.reeds[i] = min(g.reeds[i] + REED_REGROW_PER_HOUR * f32(elapsed), REEDS_PER_POND)}
 	}
 	chance := 1 - math.exp(-DIRT_TO_GRASS_PER_HOUR * elapsed)
 	changed := make([dynamic]int, context.temp_allocator)
