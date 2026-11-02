@@ -27,6 +27,10 @@ SPOIL_HOURS := [Item]f64 {
 	.Sharp_Stone = 0, // keeps like stone
 	.Short_Stick = STICK_SPOIL_HOURS,
 	.Knife = 0, // keeps like stone
+	.Spear = 0, // keeps like stone
+	.Snake_Corpse = FOOD_SPOIL_HOURS,
+	.Snake_Meat = FOOD_SPOIL_HOURS,
+	.Snake_Skin = TWINE_SPOIL_HOURS,
 }
 DROP_CHANCE :: 0.02 // chance per action that a person carrying something simply sets it down
 
@@ -117,16 +121,27 @@ craft_short_sticks :: proc(g: ^Game, p: ^Person) -> bool {
 	return true
 }
 
-// A knife is a sharp stone bound to a short stick handle with twine. A person has only two hands,
-// so ingredients may be in hand or lying on the ground at their feet (a cut short stick often is).
-// Success uses all three up and makes a knife; failure wastes just the twine.
-KNIFE_INGREDIENTS :: [3]Item{.Sharp_Stone, .Short_Stick, .Twine}
+// Recipes that bind three ingredients together. A person has only two hands, so ingredients may be
+// in hand or lying on the ground at their feet (a cut short stick often is). Success uses all three
+// up and makes the result; failure wastes just the last ingredient, the twine.
+KNIFE_INGREDIENTS :: [3]Item{.Sharp_Stone, .Short_Stick, .Twine} // a sharp stone bound to a short stick handle
+SPEAR_INGREDIENTS :: [3]Item{.Sharp_Stone, .Stick, .Twine} // a sharp stone bound to a long stick
 
 craft_knife :: proc(g: ^Game, p: ^Person) -> bool {
+	return craft_recipe(g, p, KNIFE_INGREDIENTS, .Knife)
+}
+
+// One spear each is plenty.
+craft_spear :: proc(g: ^Game, p: ^Person) -> bool {
+	if holds(p^, .Spear) {return false}
+	return craft_recipe(g, p, SPEAR_INGREDIENTS, .Spear)
+}
+
+craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: [3]Item, result: Item) -> bool {
 	hand_of: [3]int = -1 // where each ingredient was found: a hand index...
 	ground_of: [3]int = -1 // ...or an index into ground_items
 	used_hand: [MAX_HANDS]bool
-	for item, n in KNIFE_INGREDIENTS {
+	for item, n in ingredients {
 		for h in 0 ..< p.hand_count {
 			if p.hands[h] == item && !used_hand[h] {
 				hand_of[n], used_hand[h] = h, true
@@ -162,12 +177,57 @@ craft_knife :: proc(g: ^Game, p: ^Person) -> bool {
 		}
 	}
 	if !success {return true}
-	if hand := free_hand(p^); hand >= 0 {
-		p.hands[hand] = .Knife
-	} else {
-		append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = .Knife, dropped_hours = g.clock.hours})
-	}
+	give_or_drop(g, p, result)
 	return true
+}
+
+// Tools wear out: each use (a spear thrust, a knife cut) wears one point, and a tool with no
+// durability left breaks and is gone. Anything that is not a tool never wears.
+SPEAR_DURABILITY :: 8
+KNIFE_DURABILITY :: 12
+
+durability_of :: proc(item: Item) -> int {
+	#partial switch item {
+	case .Spear: return SPEAR_DURABILITY
+	case .Knife: return KNIFE_DURABILITY
+	}
+	return 0
+}
+
+// Uses left in the first held tool of this kind, and whether one is held at all.
+uses_left :: proc(p: Person, item: Item) -> (int, bool) {
+	for h in 0 ..< p.hand_count {
+		if p.hands[h] == item {return durability_of(item) - p.wear[h], true}
+	}
+	return 0, false
+}
+
+// Wear the first held tool of this kind by one use. Returns true if that broke it.
+wear_tool :: proc(p: ^Person, item: Item) -> bool {
+	for h in 0 ..< p.hand_count {
+		if p.hands[h] != item {continue}
+		p.wear[h] += 1
+		if p.wear[h] < durability_of(item) {return false}
+		p.hands[h], p.wear[h] = .None, 0
+		return true
+	}
+	return false
+}
+
+// Put a thing in a free hand, or on the ground at the person's feet if both hands are full.
+give_or_drop :: proc(g: ^Game, p: ^Person, item: Item) {
+	if hand := free_hand(p^); hand >= 0 {
+		p.hands[hand], p.wear[hand] = item, 0
+	} else {
+		append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = item, dropped_hours = g.clock.hours})
+	}
+}
+
+holds :: proc(p: Person, item: Item) -> bool {
+	for h in 0 ..< p.hand_count {
+		if p.hands[h] == item {return true}
+	}
+	return false
 }
 
 // Take one stick from the tree at (tx, ty): the person must be orthogonally next to it, the
@@ -256,6 +316,10 @@ describe_ground_items :: proc(g: ^Game, x, y: int, buf: []byte) -> string {
 	if counts[.Sharp_Stone] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d sharp stone", sep(&b), counts[.Sharp_Stone])}
 	if counts[.Short_Stick] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d short stick", sep(&b), counts[.Short_Stick])}
 	if counts[.Knife] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d knife", sep(&b), counts[.Knife])}
+	if counts[.Spear] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d spear", sep(&b), counts[.Spear])}
+	if counts[.Snake_Corpse] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake corpse", sep(&b), counts[.Snake_Corpse])}
+	if counts[.Snake_Meat] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake meat", sep(&b), counts[.Snake_Meat])}
+	if counts[.Snake_Skin] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake skin", sep(&b), counts[.Snake_Skin])}
 	if counts[.Twine] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d twine", sep(&b), counts[.Twine])}
 	if counts[.Food] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d food (%.0f%% fresh)", sep(&b), counts[.Food], 100 * fresh / f32(counts[.Food]))}
 	return strings.to_string(b)

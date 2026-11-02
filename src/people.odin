@@ -22,6 +22,10 @@ Item :: enum u8 {
 	Sharp_Stone,
 	Short_Stick,
 	Knife,
+	Spear,
+	Snake_Corpse,
+	Snake_Meat,
+	Snake_Skin,
 }
 
 DEFAULT_HANDS :: 2
@@ -39,8 +43,10 @@ Person :: struct {
 	asleep:          bool,
 	foraging:        f32, // skill 0 to 100: chance of success when gathering food, fiber, sticks, stone
 	crafting:        f32, // skill 0 to 100: chance of success when crafting
+	ranged:          f32, // skill 0 to 100: aim with a spear, set against a snake's dodge
 	hand_count:      int, // how many hands, so how many items can be carried; one item per hand
 	hands:           [MAX_HANDS]Item,
+	wear:            [MAX_HANDS]int, // uses a held tool has been through; reset when a new one is made into that hand
 	poison_hours:    f32, // hours of poison left; health drains while it lasts
 	next_move_hours: f64, // game clock time of the next step
 }
@@ -172,7 +178,7 @@ spawn_person :: proc(g: ^Game, sex: Sex) -> bool {
 	for _ in 0 ..< 10000 {
 		x, y := rand.int_max(g.width), rand.int_max(g.height)
 		if can_enter(g, x, y) {
-			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
+			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), ranged = random_skill(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
 			return true
 		}
 	}
@@ -188,7 +194,7 @@ update_people :: proc(g: ^Game) {
 				p.next_move_hours = next_step_time(p.next_move_hours)
 				continue
 			}
-			if !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
+			if !hunt_snake(g, &p) && !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !skin_snake(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_spear(g, &p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x

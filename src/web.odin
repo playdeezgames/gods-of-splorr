@@ -128,6 +128,10 @@ draw :: proc() {
 		case .Sharp_Stone: fill_rect(ix, iy, 8, 8, 0.85, 0.95, 1, 1)
 		case .Short_Stick: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.35 * fade, 1)
 		case .Knife: fill_rect(ix, iy, 8, 8, 0.95, 0.95, 0.4, 1)
+		case .Spear: fill_rect(ix, iy, 8, 8, 0.95, 0.6, 0.2, 1)
+		case .Snake_Corpse: fill_rect(ix, iy, 8, 8, 0.2 + 0.2 * fade, 0.5 * fade, 0.15, 1)
+		case .Snake_Meat: fill_rect(ix, iy, 8, 8, 0.95 * fade, 0.55 * fade, 0.6 * fade, 1)
+		case .Snake_Skin: fill_rect(ix, iy, 8, 8, 0.3 * fade, 0.7 * fade, 0.5 * fade, 1)
 		case .Fiber: fill_rect(ix, iy, 8, 8, 0.75 * fade, 0.85 * fade, 0.35 * fade, 1)
 		case .Stick: fill_rect(ix, iy, 8, 8, 0.6 * fade, 0.4 * fade, 0.2 * fade, 1)
 		case .Twine: fill_rect(ix, iy, 8, 8, 0.9 * fade, 0.75 * fade, 0.5 * fade, 1)
@@ -173,6 +177,7 @@ draw :: proc() {
 			case .Sharp_Stone: fill_rect(hx, hy, 8, 8, 0.85, 0.95, 1, 1)
 			case .Short_Stick: fill_rect(hx, hy, 8, 8, 0.8, 0.6, 0.35, 1)
 			case .Knife: fill_rect(hx, hy, 8, 8, 0.95, 0.95, 0.4, 1)
+			case .Spear: fill_rect(hx, hy, 8, 8, 0.95, 0.6, 0.2, 1)
 			}
 		}
 	}
@@ -202,7 +207,7 @@ draw :: proc() {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.1f", game.cursor_x, game.cursor_y, b.food, b.max_food)
 	}
 	if snake_at(&game, game.cursor_x, game.cursor_y) >= 0 {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Poisonous snake", game.cursor_x, game.cursor_y)
+		s = fmt.bprintf(buf[:], "(%d, %d)  Poisonous snake  -  Dodge %.0f", game.cursor_x, game.cursor_y, game.snakes[snake_at(&game, game.cursor_x, game.cursor_y)].dodge)
 	}
 	if on_ground := describe_ground_items(&game, game.cursor_x, game.cursor_y, gbuf[:]); len(on_ground) > 0 {
 		s = fmt.bprintf(buf2[:], "%s\nOn the ground: %s", s, on_ground)
@@ -211,12 +216,18 @@ draw :: proc() {
 		p := game.people[i]
 		s = fmt.bprintf(
 			buf[:],
-			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f\nStomach %.0f  Energy %.0f\nSleeps %.1fh  Hands %d/%d\nForaging %.0f  Crafting %.0f",
+			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f\nStomach %.0f  Energy %.0f\nSleeps %.1fh  Hands %d/%d\nForaging %.0f  Crafting %.0f  Ranged %.0f",
 			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
-			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count, p.foraging, p.crafting,
+			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count, p.foraging, p.crafting, p.ranged,
 		)
 		if p.poison_hours > 0 {
 			s = fmt.bprintf(buf2[:], "%s\nPoisoned for %.1fh", s, p.poison_hours)
+		}
+		if n, ok := uses_left(p, .Spear); ok {
+			s = fmt.tprintf("%s\nSpear: %d uses left", s, n)
+		}
+		if n, ok := uses_left(p, .Knife); ok {
+			s = fmt.tprintf("%s\nKnife: %d uses left", s, n)
 		}
 	} else if i := corpse_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
 		c := game.corpses[i]
