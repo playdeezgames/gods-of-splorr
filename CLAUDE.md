@@ -4,11 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## State of the repo
 
-Early prototype: a 32x32 map viewer with a day/night and calendar clock. `./build.sh` builds `build/web`; `odin test src -define:ODIN_TEST_THREADS=1` runs native tests.
+Playable simulation prototype, no player powers yet (the player is a camera and cursor). A 32x32 world with day/night, a calendar and temperature, plus people who wander, forage, eat, sleep, craft, drop things, die and rot. `./build.sh` builds `build/web`; `tools/pages.sh` copies that into `docs/` for GitHub Pages (does not commit or push); `odin test src -define:ODIN_TEST_THREADS=1` runs the native tests.
 
-- `src/game.odin`: world generation (weighted terrain), cursor and camera. `src/time.odin`: clock, calendar, latitude-driven temperature and sun, all pure. Both have native `*_test.odin` files (`#+build !js`).
-- `src/web.odin` (`#+build js`): drawing and exports; `web/index.html`: canvas shim and all input (keys, mouse, gamepad), which calls exported `on_*` procs.
+- `src/game.odin`: world generation (weighted terrain: grass, tree, bush, pond, stone field, dirt), cursor and camera. `src/time.odin`: clock, calendar, latitude-driven temperature and sun, all pure.
+- `src/people.odin`: `Person` (sex, melanin skin colour, health, satiety, stomach, energy, sleep need, foraging and crafting skills, 2 to 4 hands), wandering, eating, sleeping, death into corpses that rot into skeletons. `src/food.odin`: berry bushes whose regrowth follows temperature. `src/ground.odin`: fiber on grass, sticks on trees, stone in stone fields. `src/items.odin`: items in hands and on the ground (stone, fiber, stick, food; crafted twine, sharp stone, short stick, knife), recipes, dropping and spoilage. Crafted items have no use yet.
+- Each of these has a native `*_test.odin` (`#+build !js`). `src/web.odin` (`#+build js`) is the drawing and the exported `step`/`on_*` procs.
+- `web/index.html`: canvas shim, tint drawing (one reused scratch canvas, never a canvas per colour: see the vault's `Gotchas.md`), the info/clock overlays, the credits overlay (`C`), and all input (keys, mouse, gamepad), which calls exported `on_*` procs.
 - `runWasm` is async: call `memory.exports` only inside `.then`. Calendar parameters come from the URL: `?day=<real seconds per game day>&dpm=&mpy=&lat=` (default 1440 s/day, 30 days, 12 months, latitude 40; months per year is rounded up to a multiple of 4). `?world=screen` gives a screen-sized 20x15 world for testing (`?world=N` an N-by-N one); worlds are `width` by `height`, not necessarily square.
+- Open work lives in the Coxswain project `gods-of-splorr`.
 
 ## What this is
 
@@ -23,7 +26,7 @@ Early prototype: a 32x32 map viewer with a day/night and calendar clock. `./buil
 
 The reference for all of the above is the user's Obsidian vault at `/home/yermom/git/bok-of-splorr/splorr/` (read `Home.md` first). Useful notes: `Tech/Odin wasm recipe.md` (build command, frame loop, input, canvas shim, native-testable split), `Tech/Urizen tileset.md` and `Tech/Urizen tile catalogue*.md` (tile coordinates), `Assets/urizen_onebit_tileset__v2d0.png` (the sheet), `Tech/Release standard.md`, `Tech/GitHub Pages.md`, `Gotchas.md`. Add new hard-won lessons to the vault's `Gotchas.md`.
 
-## Build/run recipe (from the vault; not yet wired up here)
+## Build/run recipe (wired up as `build.sh`)
 
 ```bash
 odin build src -target:js_wasm32 -out:build/web/game.wasm -o:speed
@@ -31,7 +34,7 @@ cp "$(odin root)/core/sys/wasm/js/odin.js" build/web/
 python3 -m http.server -d build/web 8000   # wasm must be served over http, not file://
 ```
 
-Native tests (once they exist): `odin test src -define:ODIN_TEST_THREADS=1`; one test with `-define:ODIN_TEST_NAMES=<package>.<proc>`.
+Native tests: `odin test src -define:ODIN_TEST_THREADS=1`; one test with `-define:ODIN_TEST_NAMES=<package>.<proc>`.
 
 ## Architecture intent
 

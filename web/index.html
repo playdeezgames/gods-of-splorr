@@ -17,6 +17,11 @@
   #stage.clock-bottom #info { bottom: 3.2em; }
   #info:empty { display: none; }
   #help { font-size: 12px; opacity: .6; }
+  #credits { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5, 10, 5, .92); text-align: center; line-height: 1.6; cursor: pointer; }
+  #stage.show-credits #credits { display: flex; }
+  #credits h2 { margin: 0 0 .6em; color: #f0d890; }
+  #credits a { color: #aaa; }
+  #credits small { opacity: .6; }
   footer { font-size: 12px; text-align: center; max-width: 90vw; opacity: .7; }
   footer a { color: #aaa; }
 </style>
@@ -26,12 +31,19 @@
 <canvas id="c" width="960" height="720"></canvas>
 <div id="clock"></div>
 <div id="info"></div>
+<div id="credits"><div>
+  <h2>Gods of SPLORR!!</h2>
+  <div>Code and design: the developer, with Claude, an AI agent</div>
+  <div>Tiles: <a href="https://vurmux.itch.io/urizen-onebit-tileset" target="_blank" rel="noopener">Urizen 1-bit tileset</a> v2.0 by vurmux (CC0)</div>
+  <div>Built with Odin, running as WebAssembly</div>
+  <br><small>C or Esc or click to close</small>
+</div></div>
 </div>
 <footer>
   Tiles: Urizen 1-bit tileset by vurmux (CC0). Made by Claude, an AI agent, working with the developer.
   <a href="https://thegrumpygamedev.itch.io/">itch.io</a> · <a href="https://playdeezgames.github.io/oeuvre-of-splorr/">more games</a>
 </footer>
-<div id="help">Arrows/WASD: move cursor · Mouse: hover, wheel or drag to scroll · Space: pause · +/-: speed · Gamepad: d-pad / stick, bumpers speed, Start pause</div>
+<div id="help">Arrows/WASD: move cursor · Mouse: hover, wheel or drag to scroll · Space: pause · +/-: speed · C: credits · Gamepad: d-pad / stick, bumpers speed, Start pause</div>
 <script src="odin.js"></script>
 <script>
 const COLS = 20, ROWS = 15, TILE = 12, GAP = 13;
@@ -129,7 +141,12 @@ const KEYS = {
   ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
   ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
 };
+const creditsEl = document.getElementById("credits");
+const toggleCredits = (on) => stageEl.classList.toggle("show-credits", on);
+creditsEl.addEventListener("click", (e) => { if (e.target.tagName !== "A") toggleCredits(false); });
 window.addEventListener("keydown", (e) => {
+  if (e.key === "c" || e.key === "C") { toggleCredits(!stageEl.classList.contains("show-credits")); return; }
+  if (e.key === "Escape") { toggleCredits(false); return; }
   if (e.key === " ") { e.preventDefault(); game().on_pause(); return; }
   if (e.key === "+" || e.key === "=" || e.key === "]") { game().on_speed(1); return; }
   if (e.key === "-" || e.key === "_" || e.key === "[") { game().on_speed(-1); return; }
