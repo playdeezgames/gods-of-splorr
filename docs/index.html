@@ -58,30 +58,25 @@ img.onload = () => {
   }
   cg.putImageData(d, 0, 0);
   sheet = c;
+  img.src = ""; // the decoded original is no longer needed
 };
 img.src = "tileset.png";
 
-// Tiles are one colour on transparent, so a tint is a source-in fill of one 12x12 tile. Tinted
-// tiles are cached by tile and 8-bit colour; slowly changing colours (rotting corpses) make a
-// stream of new keys, so the cache is emptied when it grows large rather than kept forever.
-let tints = new Map();
-const MAX_TINTS = 4000;
+// Tiles are one colour on transparent, so a tint is a source-in fill of one 12x12 tile. One
+// scratch canvas is reused for every tinted draw: caching a canvas per colour costs a lot of
+// browser memory once colours keep changing (rotting corpses), and a 12x12 redraw is cheap.
+const scratch = document.createElement("canvas");
+scratch.width = TILE; scratch.height = TILE;
+const sg = scratch.getContext("2d");
 function tinted(col, row, r, gr, b) {
   if (!sheet) return null;
-  const key = `${col},${row},${r*255|0},${gr*255|0},${b*255|0}`;
-  let c = tints.get(key);
-  if (!c) {
-    if (tints.size >= MAX_TINTS) tints = new Map();
-    c = document.createElement("canvas");
-    c.width = TILE; c.height = TILE;
-    const cg = c.getContext("2d");
-    cg.drawImage(sheet, GAP * col + 1, GAP * row + 1, TILE, TILE, 0, 0, TILE, TILE);
-    cg.globalCompositeOperation = "source-in";
-    cg.fillStyle = rgb(r, gr, b);
-    cg.fillRect(0, 0, TILE, TILE);
-    tints.set(key, c);
-  }
-  return c;
+  sg.globalCompositeOperation = "source-over";
+  sg.clearRect(0, 0, TILE, TILE);
+  sg.drawImage(sheet, GAP * col + 1, GAP * row + 1, TILE, TILE, 0, 0, TILE, TILE);
+  sg.globalCompositeOperation = "source-in";
+  sg.fillStyle = rgb(r, gr, b);
+  sg.fillRect(0, 0, TILE, TILE);
+  return scratch;
 }
 const rgb = (r, gr, b, a = 1) => `rgba(${r*255|0},${gr*255|0},${b*255|0},${a})`;
 const imports = { env: {
