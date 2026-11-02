@@ -89,6 +89,7 @@ update_snakes :: proc(g: ^Game) {
 			if i := adjacent_person(g, s.x, s.y); i >= 0 {
 				if rand.float32() < SNAKE_BITE_CHANCE {
 					poison_person(&g.people[i])
+					g.people[i].asleep = false // a bite wakes a sleeper
 					s.next_move_hours += SNAKE_BITE_COOLDOWN_HOURS
 				}
 				continue

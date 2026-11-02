@@ -493,3 +493,47 @@ a_long_jump_takes_a_corpse_straight_through_to_nothing :: proc(t: ^testing.T) {
 	update_corpses(&g)
 	testing.expect_value(t, len(g.corpses), 0)
 }
+
+@(test)
+people_start_as_adults_with_a_longer_life_ahead :: proc(t: ^testing.T) {
+	rand.reset(91)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	for p in g.people {
+		testing.expect(t, p.age_years >= START_AGE_MIN && p.age_years <= START_AGE_MAX, "an adult")
+		testing.expect(t, p.lifespan_years >= LIFESPAN_MIN && p.lifespan_years <= LIFESPAN_MAX, "a lifespan in range")
+		testing.expect(t, p.lifespan_years > p.age_years, "not already doomed")
+	}
+}
+
+@(test)
+people_age_with_the_calendar :: proc(t: ^testing.T) {
+	p := Person{age_years = 20, lifespan_years = 60}
+	year := f32(HOURS_PER_DAY * 30 * 12)
+	testing.expect_value(t, hours_per_year(DEFAULT_CALENDAR), f64(year))
+	testing.expect(t, !step_age(&p, year / 2, year), "half a year is no problem")
+	testing.expect(t, abs(p.age_years - 20.5) < 1e-4, "half a year older")
+	short := Calendar_Config{day_real_seconds = 1440, days_per_month = 10, months_per_year = 4, latitude = 40}
+	testing.expect_value(t, hours_per_year(short), f64(HOURS_PER_DAY * 40)) // a shorter calendar, a shorter year
+}
+
+@(test)
+reaching_the_lifespan_is_death_by_old_age :: proc(t: ^testing.T) {
+	rand.reset(92)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	for &p in g.people {p.lifespan_years = 1000} // nobody else dies
+	g.people[0].age_years, g.people[0].lifespan_years = 59.9995, 60
+	g.clock.hours += f64(0.001 * hours_per_year(g.cfg)) // under nine hours: nobody starves meanwhile
+	update_vitals(&g)
+	testing.expect_value(t, len(g.people), START_PEOPLE - 1)
+	testing.expect_value(t, len(g.corpses), 1)
+}
+
+@(test)
+a_lifespan_of_zero_means_immortal :: proc(t: ^testing.T) {
+	p := Person{age_years = 500}
+	testing.expect(t, !step_age(&p, 1e6, 1000), "never dies of age")
+}

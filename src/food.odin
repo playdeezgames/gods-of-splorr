@@ -7,6 +7,7 @@ import "core:math/rand"
 Bush :: struct {
 	food:     f32,
 	max_food: f32, // randomly rolled per bush when the world is generated
+	miracle:  bool, // a god-made bush: holds a lot, regrows fast, and bears even in the cold
 }
 
 BUSH_MAX_FOOD_MIN :: 2.5
@@ -28,6 +29,10 @@ berry_growth_factor :: proc(temp_c: f64) -> f32 {
 	return f32((BERRY_MAX_TEMP_C - temp_c) / (BERRY_MAX_TEMP_C - BERRY_IDEAL_TEMP_C))
 }
 
+MIRACLE_MAX_FOOD :: 20
+MIRACLE_GROWTH_MULT :: 3 // times the normal regrowth
+MIRACLE_MIN_FACTOR :: 0.5 // a miracle bush grows at least this fraction of full speed, whatever the weather
+
 BUSH_GROWTH_STEP_HOURS :: 1.0 // temperature is sampled this often so big time jumps stay accurate
 
 roll_bush :: proc() -> Bush {
@@ -46,13 +51,24 @@ update_bushes :: proc(g: ^Game) {
 		sample.hours = from + step / 2
 		gain := g.bush_growth_per_hour * berry_growth_factor(temperature_c(sample, g.cfg)) * f32(step)
 		from += step
-		if gain <= 0 {continue}
+		if gain <= 0 && !any_miracle(g) {continue}
 		for t, i in g.cells {
 			if t != .Bush {continue}
 			b := &g.bushes[i]
-			b.food = min(b.food + gain, b.max_food)
+			if b.miracle {
+				b.food = min(b.food + g.bush_growth_per_hour * max(berry_growth_factor(temperature_c(sample, g.cfg)), MIRACLE_MIN_FACTOR) * MIRACLE_GROWTH_MULT * f32(step), b.max_food)
+				continue
+			}
+			if gain > 0 {b.food = min(b.food + gain, b.max_food)}
 		}
 	}
+}
+
+any_miracle :: proc(g: ^Game) -> bool {
+	for t, i in g.cells {
+		if t == .Bush && g.bushes[i].miracle {return true}
+	}
+	return false
 }
 
 bush_at :: proc(g: ^Game, x, y: int) -> (Bush, bool) {

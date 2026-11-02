@@ -424,3 +424,22 @@ snakes_and_people_get_their_stats_at_birth :: proc(t: ^testing.T) {
 		testing.expect(t, s.dodge >= 0 && s.dodge <= MAX_SKILL, "dodge in range")
 	}
 }
+
+@(test)
+a_bite_wakes_a_sleeping_person :: proc(t: ^testing.T) {
+	rand.reset(71)
+	g: Game
+	strip(&g)
+	defer game_destroy(&g)
+	add_person(&g, 1, 0)
+	g.people[0].asleep = true
+	g.people[0].energy = 50
+	spawn_snake(&g, 0, 0)
+	for _ in 0 ..< 200 {
+		g.clock.hours += 0.05
+		update_snakes(&g)
+		if g.people[0].poison_hours > 0 {break}
+	}
+	testing.expect(t, g.people[0].poison_hours > 0, "bitten")
+	testing.expect(t, !g.people[0].asleep, "woken by the bite")
+}

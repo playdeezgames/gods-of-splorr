@@ -37,6 +37,7 @@ Tile :: struct {
 }
 
 GRASS_TILE :: Tile{15, 5}
+MIRACLE_COLOR :: [3]f32{1.0, 0.85, 0.3}
 TERRAIN_TILES := [Terrain]Tile {
 	.Grass = {15, 5},
 	.Tree  = {0, 8},
@@ -105,7 +106,11 @@ draw :: proc() {
 				draw_tile(GRASS_TILE.col, GRASS_TILE.row, px, py, CELL)
 			}
 			tile := TERRAIN_TILES[t]
-			draw_tile(tile.col, tile.row, px, py, CELL)
+			if b, ok := bush_at(&game, x, y); ok && b.miracle {
+				draw_tile_tinted(tile.col, tile.row, px, py, CELL, MIRACLE_COLOR.r, MIRACLE_COLOR.g, MIRACLE_COLOR.b)
+			} else {
+				draw_tile(tile.col, tile.row, px, py, CELL)
+			}
 			if b, ok := bush_at(&game, x, y); ok { // berry bar: how full this bush is
 				fill_rect(px + 4, py + CELL - 8, CELL - 8, 4, 0, 0, 0, 0.6)
 				fill_rect(px + 4, py + CELL - 8, (CELL - 8) * b.food / b.max_food, 4, 0.9, 0.15, 0.25, 1)
@@ -204,7 +209,7 @@ draw :: proc() {
 	} else if left, ok := stone_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Stone field  -  Stone %.0f / %.0f", game.cursor_x, game.cursor_y, left, f32(STONE_FIELD_AMOUNT))
 	} else if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Bush  -  Food %.1f / %.1f", game.cursor_x, game.cursor_y, b.food, b.max_food)
+		s = fmt.bprintf(buf[:], "(%d, %d)  %s  -  Food %.1f / %.1f", game.cursor_x, game.cursor_y, "Miracle bush" if b.miracle else "Bush", b.food, b.max_food)
 	}
 	if snake_at(&game, game.cursor_x, game.cursor_y) >= 0 {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Poisonous snake  -  Dodge %.0f", game.cursor_x, game.cursor_y, game.snakes[snake_at(&game, game.cursor_x, game.cursor_y)].dodge)
@@ -220,8 +225,9 @@ draw :: proc() {
 			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
 			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), p.hand_count, p.foraging, p.crafting, p.ranged,
 		)
+		s = fmt.tprintf("%s\nAge %.0f of %.0f", s, p.age_years, p.lifespan_years)
 		if p.poison_hours > 0 {
-			s = fmt.bprintf(buf2[:], "%s\nPoisoned for %.1fh", s, p.poison_hours)
+			s = fmt.tprintf("%s\nPoisoned for %.1fh", s, p.poison_hours)
 		}
 		if n, ok := uses_left(p, .Spear); ok {
 			s = fmt.tprintf("%s\nSpear: %d uses left", s, n)
@@ -296,6 +302,7 @@ draw_minimap :: proc() {
 	for y in 0 ..< game.height {
 		for x in 0 ..< game.width {
 			c := MINI_COLORS[terrain_at(&game, x, y)]
+			if b, ok := bush_at(&game, x, y); ok && b.miracle {c = MIRACLE_COLOR}
 			fill_rect(ox + f32(x * MINI_CELL), oy + f32(y * MINI_CELL), MINI_CELL, MINI_CELL, c.r, c.g, c.b, 1)
 		}
 	}

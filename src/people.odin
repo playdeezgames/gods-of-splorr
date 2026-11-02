@@ -47,6 +47,8 @@ Person :: struct {
 	hand_count:      int, // how many hands, so how many items can be carried; one item per hand
 	hands:           [MAX_HANDS]Item,
 	wear:            [MAX_HANDS]int, // uses a held tool has been through; reset when a new one is made into that hand
+	age_years:       f32, // grows with game time; the calendar decides how long a year is
+	lifespan_years:  f32, // dies of old age on reaching this; 0 means never
 	poison_hours:    f32, // hours of poison left; health drains while it lasts
 	next_move_hours: f64, // game clock time of the next step
 }
@@ -58,6 +60,23 @@ MAX_ENERGY :: 100.0
 
 MAX_SKILL :: 100.0
 SKILL_MIN_SUCCESS :: 0.25 // an unskilled person still succeeds this often; a master always does
+
+// Everyone starts as an adult and lives to a lifespan of their own: most near 65, a few much shorter
+// or longer (a triangular spread like the sleep need).
+START_AGE_MIN :: 16.0
+START_AGE_MAX :: 40.0
+LIFESPAN_MIN :: 50.0
+LIFESPAN_MAX :: 80.0
+
+random_lifespan :: proc() -> f32 {
+	return LIFESPAN_MIN + (rand.float32() + rand.float32()) / 2 * (LIFESPAN_MAX - LIFESPAN_MIN)
+}
+
+// Age a person by dt game hours; true once they have reached their lifespan.
+step_age :: proc(p: ^Person, dt, hours_per_year: f32) -> bool {
+	p.age_years += dt / hours_per_year
+	return p.lifespan_years > 0 && p.age_years >= p.lifespan_years
+}
 
 // Skills spread 0..100 around 50 (triangular), like the sleep need.
 random_skill :: proc() -> f32 {
@@ -178,7 +197,7 @@ spawn_person :: proc(g: ^Game, sex: Sex) -> bool {
 	for _ in 0 ..< 10000 {
 		x, y := rand.int_max(g.width), rand.int_max(g.height)
 		if can_enter(g, x, y) {
-			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), ranged = random_skill(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
+			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), ranged = random_skill(), age_years = START_AGE_MIN + rand.float32() * (START_AGE_MAX - START_AGE_MIN), lifespan_years = random_lifespan(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
 			return true
 		}
 	}
@@ -267,7 +286,8 @@ update_vitals :: proc(g: ^Game) {
 	for i := len(g.people) - 1; i >= 0; i -= 1 {
 		p := &g.people[i]
 		step_vitals(p, elapsed)
-		if p.health <= 0 {kill_person(g, i)}
+		died_of_age := step_age(p, elapsed, f32(hours_per_year(g.cfg)))
+		if p.health <= 0 || died_of_age {kill_person(g, i)}
 	}
 }
 

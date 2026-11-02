@@ -14,6 +14,11 @@ DEFAULT_SPEED_INDEX :: 2
 
 START_HOUR :: 8.0
 
+// Game hours in one calendar year, which depends on the configured days and months.
+hours_per_year :: proc(cfg: Calendar_Config) -> f64 {
+	return f64(HOURS_PER_DAY * cfg.days_per_month * cfg.months_per_year)
+}
+
 Calendar_Config :: struct {
 	day_real_seconds: f64, // real seconds for one 24-hour day at 1x
 	days_per_month:   int,

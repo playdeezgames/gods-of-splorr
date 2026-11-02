@@ -9,18 +9,24 @@ Power :: enum u8 {
 	Manna, // drops a berry on the ground
 	Smite, // kills the person standing there
 	Snake, // a poisonous snake that hunts nearby people
+	Smite_Bush, // scorches a bush away, leaving bare dirt
+	Miracle_Bush, // grows a bush that holds a lot of berries and bears in any weather
 }
 
 POWER_NAMES := [Power]string {
 	.Manna = "Manna",
 	.Smite = "Smite",
 	.Snake = "Snake",
+	.Smite_Bush = "Smite Bush",
+	.Miracle_Bush = "Miracle Bush",
 }
 
 POWER_COSTS := [Power]f32 {
 	.Manna = 10,
 	.Smite = 30,
 	.Snake = 25,
+	.Smite_Bush = 15,
+	.Miracle_Bush = 40,
 }
 
 // Regain faith for the game time since the last call.
@@ -38,6 +44,8 @@ power_has_target :: proc(g: ^Game, power: Power) -> bool {
 	case .Manna: return walkable(terrain_at(g, x, y))
 	case .Smite: return person_at(g, x, y) >= 0
 	case .Snake: return can_enter(g, x, y)
+	case .Smite_Bush: return terrain_at(g, x, y) == .Bush
+	case .Miracle_Bush: return can_enter(g, x, y)
 	}
 	return false
 }
@@ -54,7 +62,19 @@ use_power :: proc(g: ^Game, power: Power) -> bool {
 		kill_person(g, person_at(g, x, y))
 	case .Snake:
 		spawn_snake(g, x, y)
+	case .Smite_Bush:
+		clear_cell(g, x, y, .Dirt)
+	case .Miracle_Bush:
+		clear_cell(g, x, y, .Bush)
+		g.bushes[y * g.width + x] = Bush{food = MIRACLE_MAX_FOOD, max_food = MIRACLE_MAX_FOOD, miracle = true}
 	}
 	g.faith -= POWER_COSTS[power]
 	return true
+}
+
+// Turn a cell into a different kind of terrain with nothing left of what was there.
+clear_cell :: proc(g: ^Game, x, y: int, to: Terrain) {
+	i := y * g.width + x
+	g.cells[i] = to
+	g.bushes[i], g.fiber[i], g.stone[i], g.sticks[i] = {}, 0, 0, 0
 }
