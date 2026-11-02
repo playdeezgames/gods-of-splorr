@@ -77,4 +77,5 @@ clear_cell :: proc(g: ^Game, x, y: int, to: Terrain) {
 	i := y * g.width + x
 	g.cells[i] = to
 	g.bushes[i], g.fiber[i], g.stone[i], g.sticks[i], g.reeds[i], g.fuel[i] = {}, 0, 0, 0, 0, 0
+	g.lit[i], g.fish[i] = false, 0
 }

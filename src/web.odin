@@ -90,6 +90,7 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 		update_corpses(&game)
 		update_vitals(&game)
 		update_faith(&game)
+		update_fire(&game)
 		update_snakes(&game)
 	}
 	draw()
@@ -108,6 +109,10 @@ draw :: proc() {
 				draw_tile(GRASS_TILE.col, GRASS_TILE.row, px, py, CELL)
 			}
 			tile := TERRAIN_TILES[t]
+			if t == .Fire_Pit && !game.lit[y * game.width + x] { // an unlit pit is cold ashes
+				draw_tile_tinted(tile.col, tile.row, px, py, CELL, 0.45, 0.32, 0.25)
+				continue
+			}
 			if b, ok := bush_at(&game, x, y); ok && b.miracle {
 				draw_tile_tinted(tile.col, tile.row, px, py, CELL, MIRACLE_COLOR.r, MIRACLE_COLOR.g, MIRACLE_COLOR.b)
 			} else {
@@ -144,6 +149,11 @@ draw :: proc() {
 		case .Bow: fill_rect(ix, iy, 8, 8, 0.7, 0.5, 0.25, 1)
 		case .Stake: fill_rect(ix, iy, 8, 8, 0.85, 0.7, 0.45, 1)
 		case .Fire_Drill: fill_rect(ix, iy, 8, 8, 0.95, 0.45, 0.2, 1)
+		case .Net: fill_rect(ix, iy, 8, 8, 0.8, 0.8, 0.9, 1)
+		case .Fish: fill_rect(ix, iy, 8, 8, 0.4 * fade, 0.7 * fade, 0.95 * fade, 1)
+		case .Fish_Filet: fill_rect(ix, iy, 8, 8, 0.95 * fade, 0.7 * fade, 0.6 * fade, 1)
+		case .Cooking_Stick: fill_rect(ix, iy, 8, 8, 0.75, 0.55, 0.3, 1)
+		case .Cooked_Snake_Meat, .Cooked_Fish_Filet: fill_rect(ix, iy, 8, 8, 0.7, 0.4, 0.2, 1) // only ever on a stick
 		case .Fire_Pit: // never lies on the ground
 		case .Basket: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.25 * fade, 1)
 		case .Snake_Corpse: fill_rect(ix, iy, 8, 8, 0.2 + 0.2 * fade, 0.5 * fade, 0.15, 1)
@@ -199,9 +209,18 @@ draw :: proc() {
 			case .Knife: fill_rect(hx, hy, size, size, 0.95, 0.95, 0.4, 1)
 			case .Spear: fill_rect(hx, hy, size, size, 0.95, 0.6, 0.2, 1)
 			case .Reed: fill_rect(hx, hy, size, size, 0.5, 0.85, 0.4, 1)
+			case .Fish: fill_rect(hx, hy, size, size, 0.4, 0.7, 0.95, 1)
+			case .Fish_Filet: fill_rect(hx, hy, size, size, 0.95, 0.7, 0.6, 1)
 			case .Bow: fill_rect(hx, hy, size, size, 0.7, 0.5, 0.25, 1)
 			case .Stake: fill_rect(hx, hy, size, size, 0.85, 0.7, 0.45, 1)
 			case .Fire_Drill: fill_rect(hx, hy, size, size, 0.95, 0.45, 0.2, 1)
+			case .Net: fill_rect(hx, hy, size, size, 0.8, 0.8, 0.9, 1)
+			case .Cooking_Stick: // a stick, with whatever is on it as a dot beside it
+				fill_rect(hx, hy, size, size, 0.75, 0.55, 0.3, 1)
+				#partial switch p.loaded[h] {
+				case .Snake_Meat, .Fish_Filet: fill_rect(hx + size / 2, hy, size / 2, size / 2, 0.95, 0.5, 0.55, 1)
+				case .Cooked_Snake_Meat, .Cooked_Fish_Filet: fill_rect(hx + size / 2, hy, size / 2, size / 2, 0.55, 0.3, 0.1, 1)
+				}
 			case .Basket: fill_rect(hx, hy, size, size, 0.8, 0.6, 0.25, 1)
 			}
 		}
@@ -227,9 +246,10 @@ draw :: proc() {
 	} else if fiber, ok := fiber_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Grass  -  Fiber %.1f / %.0f", game.cursor_x, game.cursor_y, fiber, f32(FIBER_PER_GRASS))
 	} else if fuel, ok := fuel_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Fire pit  -  Fuel %.1f / %.0f sticks", game.cursor_x, game.cursor_y, fuel, f32(FIRE_PIT_FUEL))
+		s = fmt.bprintf(buf[:], "(%d, %d)  Fire pit (%s)  -  Fuel %.1f / %.0f sticks", game.cursor_x, game.cursor_y, "lit" if fire_lit_at(&game, game.cursor_x, game.cursor_y) else "cold", fuel, f32(FIRE_PIT_FUEL))
 	} else if reeds, ok := reeds_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Pond  -  Reeds %.1f / %.0f", game.cursor_x, game.cursor_y, reeds, f32(REEDS_PER_POND))
+		fish, _ := fish_at(&game, game.cursor_x, game.cursor_y)
+		s = fmt.bprintf(buf[:], "(%d, %d)  Pond  -  Reeds %.1f / %.0f  Fish %.1f / %.0f", game.cursor_x, game.cursor_y, reeds, f32(REEDS_PER_POND), fish, f32(FISH_PER_POND))
 	} else if left, ok := stone_at(&game, game.cursor_x, game.cursor_y); ok {
 		s = fmt.bprintf(buf[:], "(%d, %d)  Stone field  -  Stone %.0f / %.0f", game.cursor_x, game.cursor_y, left, f32(STONE_FIELD_AMOUNT))
 	} else if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
@@ -260,6 +280,13 @@ draw :: proc() {
 		if n, ok := uses_left(p, .Spear); ok {
 			s = fmt.tprintf("%s\nSpear: %d uses left", s, n)
 		}
+		if n, ok := uses_left(p, .Fire_Drill); ok {
+			s = fmt.tprintf("%s\nFire drill: %d uses left", s, n)
+		}
+		if n, ok := uses_left(p, .Net); ok {
+			s = fmt.tprintf("%s\nNet: %d uses left", s, n)
+		}
+		s = fmt.tprintf("%s\nFishing %.0f (+%d)  Cooking %.0f (+%d)", s, p.fishing, p.fish_level, p.cooking, p.cook_level)
 		if n, ok := uses_left(p, .Knife); ok {
 			s = fmt.tprintf("%s\nKnife: %d uses left", s, n)
 		}

@@ -57,6 +57,9 @@ Game :: struct {
 	bushes_updated_hours: f64,
 	sticks:           []f32, // parallel to cells; sticks left where the cell is a Tree
 	fiber:            []f32, // parallel to cells; plant fiber left where the cell is Grass
+	lit:              []bool, // parallel to cells; whether the Fire_Pit there is burning
+	fire_updated_hours: f64,
+	fish:             []f32, // parallel to cells; fish left where the cell is a Pond
 	fuel:             []f32, // parallel to cells; sticks' worth of fuel where the cell is a Fire_Pit
 	reeds:            []f32, // parallel to cells; reeds left where the cell is a Pond
 	stone:            []f32, // parallel to cells; stone left where the cell is a Stone_Field
@@ -107,12 +110,15 @@ game_init_rect :: proc(g: ^Game, width, height: int) {
 	g.sticks = make([]f32, width * height)
 	g.reeds = make([]f32, width * height)
 	g.fuel = make([]f32, width * height)
+	g.lit = make([]bool, width * height)
+	g.fish = make([]f32, width * height)
+	g.fire_updated_hours = g.clock.hours
 	for t, i in g.cells {
 		if t == .Bush {g.bushes[i] = roll_bush()}
 		if t == .Stone_Field {g.stone[i] = STONE_FIELD_AMOUNT}
 		if t == .Grass {g.fiber[i] = FIBER_PER_GRASS}
 		if t == .Tree {g.sticks[i] = STICKS_PER_TREE}
-		if t == .Pond {g.reeds[i] = REEDS_PER_POND}
+		if t == .Pond {g.reeds[i], g.fish[i] = REEDS_PER_POND, FISH_PER_POND}
 	}
 	spawn_person(g, .Male) // one of each sex guaranteed, the rest random
 	spawn_person(g, .Female)
@@ -138,6 +144,8 @@ game_destroy :: proc(g: ^Game) {
 	delete(g.sticks)
 	delete(g.reeds)
 	delete(g.fuel)
+	delete(g.lit)
+	delete(g.fish)
 	delete(g.ground_items)
 	delete(g.snakes)
 }

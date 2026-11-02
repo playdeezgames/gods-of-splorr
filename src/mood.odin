@@ -52,16 +52,41 @@ total_crafts :: proc(p: Person) -> int {
 	return n
 }
 
-// What making this item would feel like right now: a big hit for a first, a shrinking one for
-// repeats of the same item, and everything duller the more the person has already made.
+// Every success at anything: items made, fish caught, meals cooked.
+total_successes :: proc(p: Person) -> int {
+	return total_crafts(p) + p.fish_level + p.cook_level
+}
+
+// What a success at something would feel like right now, given how many times the person has already
+// managed it: a big hit for a first, a shrinking one for repeats, and everything duller the more the
+// person has already achieved in all.
+shaped_reward :: proc(p: Person, level: int) -> f32 {
+	novelty := f32(FIRST_CRAFT_MULT) if level == 0 else 1 / f32(1 + level)
+	return CRAFT_REWARD * novelty / (1 + HABITUATION_PER_CRAFT * f32(total_successes(p)))
+}
+
 craft_reward :: proc(p: Person, item: Item) -> f32 {
-	novelty := f32(FIRST_CRAFT_MULT) if p.craft_levels[item] == 0 else 1 / f32(1 + p.craft_levels[item])
-	return CRAFT_REWARD * novelty / (1 + HABITUATION_PER_CRAFT * f32(total_crafts(p)))
+	return shaped_reward(p, p.craft_levels[item])
+}
+
+// Catching a fish and cooking a meal are goals too: they stand in the list as .Fish and
+// .Cooked_Fish_Filet and feel like a success at fishing or cooking.
+goal_reward :: proc(p: Person, item: Item) -> f32 {
+	#partial switch item {
+	case .Fish: return shaped_reward(p, p.fish_level)
+	case .Cooked_Fish_Filet: return shaped_reward(p, p.cook_level)
+	}
+	return craft_reward(p, item)
 }
 
 // Pay out the reward for a success. Call it before the item's level goes up.
 reward_dopamine :: proc(p: ^Person, item: Item) {
-	p.dopamine = min(p.dopamine + craft_reward(p^, item), MAX_DOPAMINE)
+	reward_activity(p, p.craft_levels[item])
+}
+
+// The same for a success at fishing or cooking, whose experience is not kept per item.
+reward_activity :: proc(p: ^Person, level: int) {
+	p.dopamine = min(p.dopamine + shaped_reward(p^, level), MAX_DOPAMINE)
 }
 
 // Dopamine bleeds off exponentially: half is gone after the half-life.
@@ -69,7 +94,8 @@ step_dopamine :: proc(p: ^Person, dt: f32) {
 	p.dopamine *= math.pow(f32(0.5), dt / DOPAMINE_HALF_LIFE_HOURS)
 }
 
-CRAFTABLE := [?]Item{.Twine, .Sharp_Stone, .Short_Stick, .Knife, .Spear, .Basket, .Bow, .Stake, .Fire_Drill, .Fire_Pit}
+// Things people can set their hearts on, in the order that breaks ties between equally new ones.
+CRAFTABLE := [?]Item{.Twine, .Sharp_Stone, .Short_Stick, .Knife, .Spear, .Basket, .Bow, .Stake, .Fire_Drill, .Fire_Pit, .Net, .Cooking_Stick, .Fish, .Cooked_Fish_Filet}
 
 try_craft :: proc(g: ^Game, p: ^Person, item: Item) -> bool {
 	#partial switch item {
@@ -83,6 +109,8 @@ try_craft :: proc(g: ^Game, p: ^Person, item: Item) -> bool {
 	case .Stake: return craft_stake(g, p)
 	case .Fire_Drill: return craft_fire_drill(g, p)
 	case .Fire_Pit: return build_fire_pit(g, p)
+	case .Net: return craft_net(g, p)
+	case .Cooking_Stick: return craft_cooking_stick(g, p)
 	}
 	return false
 }
@@ -91,7 +119,7 @@ try_craft :: proc(g: ^Game, p: ^Person, item: Item) -> bool {
 by_reward :: proc(p: Person) -> [len(CRAFTABLE)]Item {
 	order := CRAFTABLE
 	for i in 1 ..< len(order) { // stable insertion sort: ties keep their listed order
-		for j := i; j > 0 && craft_reward(p, order[j]) > craft_reward(p, order[j - 1]); j -= 1 {
+		for j := i; j > 0 && goal_reward(p, order[j]) > goal_reward(p, order[j - 1]); j -= 1 {
 			order[j], order[j - 1] = order[j - 1], order[j]
 		}
 	}
@@ -126,6 +154,8 @@ recipe_needs :: proc(item: Item) -> []Need {
 	@(static) bow := [?]Need{{.Stick, 1}, {.Twine, 1}}
 	@(static) stake := [?]Need{{.Knife, 1}, {.Short_Stick, 1}}
 	@(static) drill := [?]Need{{.Bow, 1}, {.Stake, 1}}
+	@(static) net := [?]Need{{.Twine, NET_TWINE}}
+	@(static) cooking_stick := [?]Need{{.Knife, 1}, {.Stick, 1}}
 	#partial switch item {
 	case .Twine: return twine[:]
 	case .Sharp_Stone: return sharp[:]
@@ -136,6 +166,8 @@ recipe_needs :: proc(item: Item) -> []Need {
 	case .Bow: return bow[:]
 	case .Stake: return stake[:]
 	case .Fire_Drill: return drill[:]
+	case .Net: return net[:]
+	case .Cooking_Stick: return cooking_stick[:]
 	}
 	return nil
 }
@@ -199,7 +231,15 @@ gather_raw :: proc(g: ^Game, p: ^Person, raw: Item) -> bool {
 pursue_goal :: proc(g: ^Game, p: ^Person) -> bool {
 	if !craving(p^) || p.satiety < SEEK_MIN_SATIETY {return false}
 	for goal in by_reward(p^) {
-		if holds(p^, goal) && (goal == .Spear || goal == .Basket || goal == .Knife || goal == .Bow || goal == .Stake || goal == .Fire_Drill) {continue} // one is plenty
+		if holds(p^, goal) && (goal == .Spear || goal == .Basket || goal == .Knife || goal == .Bow || goal == .Stake || goal == .Fire_Drill || goal == .Net || goal == .Cooking_Stick) {continue} // one is plenty
+		if goal == .Fish {
+			if pursue_fishing(g, p) {return true}
+			continue
+		}
+		if goal == .Cooked_Fish_Filet {
+			if pursue_cooking(g, p) {return true}
+			continue
+		}
 		if goal == .Fire_Pit { // a firepit is built from a pile at a site rather than from what is in hand
 			if pursue_pit(g, p) {return true}
 			continue
@@ -273,4 +313,68 @@ unload :: proc(g: ^Game, p: ^Person) -> bool {
 		if p.hands[h] == .Stone || p.hands[h] == .Stick {return drop_item(g, p, h)}
 	}
 	return false
+}
+
+// The nearest cell for which match is true.
+nearest_match :: proc(g: ^Game, p: Person, match: proc(g: ^Game, x, y: int) -> bool) -> (x, y: int, ok: bool) {
+	best := max(int)
+	for i in 0 ..< len(g.cells) {
+		cx, cy := i % g.width, i / g.width
+		if !match(g, cx, cy) {continue}
+		if d := abs(cx - p.x) + abs(cy - p.y); d < best {best, x, y, ok = d, cx, cy, true}
+	}
+	return
+}
+
+// Take the next step toward making something: craft it now, or go and get a raw material.
+pursue_step :: proc(g: ^Game, p: ^Person, step: Step) -> bool {
+	if step.craft != .None {return try_craft(g, p, step.craft)}
+	if step.raw == .None || free_hand(p^) < 0 {return false}
+	if gather_raw(g, p, step.raw) {return true}
+	if tx, ty, found := nearest_source(g, p^, step.raw); found {return step_toward(g, p, tx, ty)}
+	return false
+}
+
+// Get a net (making one if need be), then go to a pond with fish in it and fish.
+pursue_fishing :: proc(g: ^Game, p: ^Person) -> bool {
+	if !holds(p^, .Net) {return pursue_step(g, p, next_step(g, p^, .Net))}
+	if fish_adjacent(g, p) {return true}
+	if tx, ty, found := nearest_match(g, p^, pond_with_fish); found {return step_toward(g, p, tx, ty)}
+	return false
+}
+
+// Cook a meal: get a cooking stick, put meat on it (catching and cutting a fish if there is none),
+// make sure a fire is burning, and hold the stick to it.
+pursue_cooking :: proc(g: ^Game, p: ^Person) -> bool {
+	if _, _, has_pit := nearest_match(g, p^, is_fire_pit); !has_pit {return false} // nowhere to cook
+	if stick_where(p^, is_cooked) >= 0 {return false} // a meal is ready: eating comes first
+	if stick_where(p^, is_raw_meat) >= 0 { // meat on the stick: take it to a lit fire
+		if cook_on_fire(g, p) {return true}
+		if tx, ty, lit := nearest_match(g, p^, lit_pit); lit {return step_toward(g, p, tx, ty)}
+		return pursue_lighting(g, p)
+	}
+	if !holds(p^, .Cooking_Stick) {return pursue_step(g, p, next_step(g, p^, .Cooking_Stick))}
+	if load_stick(g, p) {return true}
+	if have_count(g, p^, .Fish) > 0 { // cut the fish into filets
+		if holds(p^, .Knife) {return fillet_fish(g, p)}
+		return pursue_step(g, p, next_step(g, p^, .Knife))
+	}
+	return pursue_fishing(g, p)
+}
+
+is_fire_pit :: proc(g: ^Game, x, y: int) -> bool {
+	return terrain_at(g, x, y) == .Fire_Pit
+}
+
+// Light a pit that has fuel, making a fire drill first if need be.
+pursue_lighting :: proc(g: ^Game, p: ^Person) -> bool {
+	if !holds(p^, .Fire_Drill) {return pursue_step(g, p, next_step(g, p^, .Fire_Drill))}
+	if light_fire(g, p) {return true}
+	if tx, ty, found := nearest_match(g, p^, unlit_pit_with_fuel); found {return step_toward(g, p, tx, ty)}
+	// every pit is out of fuel: put a stick on one to bring it back
+	tx, ty, found := nearest_match(g, p^, pit_has_room)
+	if !found {return false}
+	if !holds(p^, .Stick) {return pursue_step(g, p, Step{raw = .Stick})}
+	if add_stick(g, p, tx, ty) {return true}
+	return step_toward(g, p, tx, ty)
 }

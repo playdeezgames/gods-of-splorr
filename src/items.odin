@@ -36,6 +36,12 @@ SPOIL_HOURS := [Item]f64 {
 	.Bow = 0, // keeps like the other tools
 	.Stake = 0,
 	.Fire_Drill = 0,
+	.Net = 0,
+	.Fish = FOOD_SPOIL_HOURS,
+	.Fish_Filet = FOOD_SPOIL_HOURS,
+	.Cooking_Stick = 0,
+	.Cooked_Snake_Meat = FOOD_SPOIL_HOURS,
+	.Cooked_Fish_Filet = FOOD_SPOIL_HOURS,
 	.Fire_Pit = 0,
 }
 DROP_CHANCE :: 0.02 // chance per action that a person carrying something simply sets it down
@@ -51,7 +57,7 @@ ground_freshness :: proc(g: ^Game, it: Ground_Item) -> f32 {
 drop_item :: proc(g: ^Game, p: ^Person, hand: int) -> bool {
 	if hand < 0 || hand >= carry_slots(p^) || p.hands[hand] == .None {return false}
 	append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = p.hands[hand], dropped_hours = g.clock.hours})
-	p.hands[hand] = .None
+	p.hands[hand], p.loaded[hand] = .None, .None
 	spill_unsupported(g, p)
 	return true
 }
@@ -129,6 +135,12 @@ ITEM_NAMES := [Item]string {
 	.Bow = "bow",
 	.Stake = "stake",
 	.Fire_Drill = "fire drill",
+	.Net = "net",
+	.Fish = "fish",
+	.Fish_Filet = "fish filet",
+	.Cooking_Stick = "cooking stick",
+	.Cooked_Snake_Meat = "cooked snake meat",
+	.Cooked_Fish_Filet = "cooked fish filet",
 	.Fire_Pit = "fire pit",
 }
 
@@ -215,7 +227,7 @@ craft_basket :: proc(g: ^Game, p: ^Person) -> bool {
 
 MAX_INGREDIENTS :: 16
 
-craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item, fail_wastes := true) -> bool {
+craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item, fail_loss := 1) -> bool {
 	n := len(ingredients)
 	hand_of: [MAX_INGREDIENTS]int = -1 // where each ingredient was found: a hand index...
 	ground_of: [MAX_INGREDIENTS]int = -1 // ...or an index into ground_items
@@ -241,7 +253,7 @@ craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item, fa
 	}
 	// Work out what is spent: everything on success, only the last ingredient on failure (or nothing).
 	success := craft_roll(p, result)
-	first := 0 if success else (n - 1 if fail_wastes else n) // a failed try spends the last ingredient, or nothing
+	first := 0 if success else n - fail_loss // a failed try spends the last few ingredients (or none)
 	remove_ground: [MAX_INGREDIENTS]int = -1
 	for k in first ..< n {
 		if hand_of[k] >= 0 {p.hands[hand_of[k]] = .None}
@@ -265,11 +277,14 @@ craft_recipe :: proc(g: ^Game, p: ^Person, ingredients: []Item, result: Item, fa
 // durability left breaks and is gone. Anything that is not a tool never wears.
 SPEAR_DURABILITY :: 8
 KNIFE_DURABILITY :: 12
+FIRE_DRILL_DURABILITY :: 6
 
 durability_of :: proc(item: Item) -> int {
 	#partial switch item {
 	case .Spear: return SPEAR_DURABILITY
 	case .Knife: return KNIFE_DURABILITY
+	case .Net: return NET_DURABILITY
+	case .Fire_Drill: return FIRE_DRILL_DURABILITY
 	}
 	return 0
 }
@@ -313,7 +328,7 @@ craft_stake :: proc(g: ^Game, p: ^Person) -> bool {
 // A bow and a stake make a fire drill. A failed attempt wastes nothing.
 craft_fire_drill :: proc(g: ^Game, p: ^Person) -> bool {
 	ingredients := [?]Item{.Bow, .Stake}
-	return craft_recipe(g, p, ingredients[:], .Fire_Drill, fail_wastes = false)
+	return craft_recipe(g, p, ingredients[:], .Fire_Drill, fail_loss = 0)
 }
 
 // Use up `count` of an item, from hands first and then the ground at the person's feet. Nothing is
@@ -335,7 +350,7 @@ spend :: proc(g: ^Game, p: ^Person, item: Item, count: int) -> bool {
 // Put a thing in a free hand, or on the ground at the person's feet if both hands are full.
 give_or_drop :: proc(g: ^Game, p: ^Person, item: Item) {
 	if hand := free_hand(p^); hand >= 0 {
-		p.hands[hand], p.wear[hand] = item, 0
+		p.hands[hand], p.wear[hand], p.loaded[hand] = item, 0, .None
 	} else {
 		append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = item, dropped_hours = g.clock.hours})
 	}
@@ -461,6 +476,10 @@ describe_ground_items :: proc(g: ^Game, x, y: int, buf: []byte) -> string {
 	if counts[.Bow] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d bow", sep(&b), counts[.Bow])}
 	if counts[.Stake] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d stake", sep(&b), counts[.Stake])}
 	if counts[.Fire_Drill] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d fire drill", sep(&b), counts[.Fire_Drill])}
+	if counts[.Net] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d net", sep(&b), counts[.Net])}
+	if counts[.Fish] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d fish", sep(&b), counts[.Fish])}
+	if counts[.Fish_Filet] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d fish filet", sep(&b), counts[.Fish_Filet])}
+	if counts[.Cooking_Stick] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d cooking stick", sep(&b), counts[.Cooking_Stick])}
 	if counts[.Reed] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d reed", sep(&b), counts[.Reed])}
 	if counts[.Basket] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d basket", sep(&b), counts[.Basket])}
 	if counts[.Snake_Skin] > 0 && room(&b) {fmt.sbprintf(&b, "%s%d snake skin", sep(&b), counts[.Snake_Skin])}

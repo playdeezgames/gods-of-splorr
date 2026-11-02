@@ -35,6 +35,15 @@ take_fiber :: proc(g: ^Game, x, y: int) -> f32 {
 
 // Trees carry sticks that people can gather from beside them. A tree stays a tree when it is
 // picked bare, and regrows its sticks very slowly (fiber regrows ten times faster).
+// Ponds hold fish, which a net catches one at a time. They breed back slowly.
+FISH_PER_POND :: 6
+FISH_REGROW_PER_HOUR :: 0.01
+
+fish_at :: proc(g: ^Game, x, y: int) -> (f32, bool) {
+	if !in_bounds(g, x, y) || terrain_at(g, x, y) != .Pond {return 0, false}
+	return g.fish[y * g.width + x], true
+}
+
 // A firepit is built from stone and sticks on an empty cell beside the builder, and holds fuel
 // measured in sticks' worth. It is not walkable.
 FIRE_PIT_STONES :: 8
@@ -131,7 +140,10 @@ update_ground :: proc(g: ^Game) {
 		if t == .Tree {g.sticks[i] = min(g.sticks[i] + STICK_REGROW_PER_HOUR * f32(elapsed), STICKS_PER_TREE)}
 	}
 	for t, i in g.cells {
-		if t == .Pond {g.reeds[i] = min(g.reeds[i] + REED_REGROW_PER_HOUR * f32(elapsed), REEDS_PER_POND)}
+		if t == .Pond {
+			g.reeds[i] = min(g.reeds[i] + REED_REGROW_PER_HOUR * f32(elapsed), REEDS_PER_POND)
+			g.fish[i] = min(g.fish[i] + FISH_REGROW_PER_HOUR * f32(elapsed), FISH_PER_POND)
+		}
 	}
 	chance := 1 - math.exp(-DIRT_TO_GRASS_PER_HOUR * elapsed)
 	changed := make([dynamic]int, context.temp_allocator)

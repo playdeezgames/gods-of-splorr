@@ -31,6 +31,12 @@ Item :: enum u8 {
 	Bow,
 	Stake,
 	Fire_Drill,
+	Net,
+	Fish,
+	Fish_Filet,
+	Cooking_Stick,
+	Cooked_Snake_Meat, // only ever on a cooking stick
+	Cooked_Fish_Filet,
 	Fire_Pit, // never held or dropped: it is built on the ground, and is here so people can be credited with making one
 }
 
@@ -52,9 +58,15 @@ Person :: struct {
 	foraging:        f32, // skill 0 to 100: chance of success when gathering food, fiber, sticks, stone
 	crafting:        f32, // skill 0 to 100: chance of success when crafting
 	craft_levels:    [Item]int, // successes at crafting each item; each adds a point to the next check for that item
-	ranged:          f32, // skill 0 to 100: aim with a spear, set against a snake's dodge
+	ranged:          f32,
+	fishing:         f32, // skill 0 to 100, with fish_level added to the check as crafting levels are
+	cooking:         f32, // skill 0 to 100, with cook_level added to the check
+	fish_level:      int, // fish caught so far
+	cook_level:      int, // meals cooked so far
+ // skill 0 to 100: aim with a spear, set against a snake's dodge
 	hand_count:      int, // how many hands; one item per hand, and a held basket adds BASKET_SLOTS more places
 	hands:           [MAX_SLOTS]Item, // the first hand_count are hands; the rest are in a basket, usable only while one is held
+	loaded:          [MAX_SLOTS]Item, // what is on the cooking stick in that place, if one is held there
 	wear:            [MAX_SLOTS]int, // uses a held tool has been through; reset when a new one is made into that hand
 	dopamine:        f32, // 0 to MAX_DOPAMINE: mood; crafting raises it, time bleeds it off; see mood.odin
 	site_x, site_y:  int, // where a firepit's pile of materials is being gathered
@@ -209,7 +221,7 @@ spawn_person :: proc(g: ^Game, sex: Sex) -> bool {
 	for _ in 0 ..< 10000 {
 		x, y := rand.int_max(g.width), rand.int_max(g.height)
 		if can_enter(g, x, y) {
-			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), ranged = random_skill(), dopamine = START_DOPAMINE, age_years = START_AGE_MIN + rand.float32() * (START_AGE_MAX - START_AGE_MIN), lifespan_years = random_lifespan(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
+			append(&g.people, Person{x = x, y = y, sex = sex, melanin = random_melanin(), health = MAX_HEALTH, satiety = START_SATIETY, stomach = START_STOMACH, energy = MAX_ENERGY, sleep_hours = random_sleep_hours(), foraging = random_skill(), crafting = random_skill(), ranged = random_skill(), fishing = random_skill(), cooking = random_skill(), dopamine = START_DOPAMINE, age_years = START_AGE_MIN + rand.float32() * (START_AGE_MAX - START_AGE_MIN), lifespan_years = random_lifespan(), hand_count = DEFAULT_HANDS, next_move_hours = next_step_time(g.clock.hours)})
 			return true
 		}
 	}
@@ -225,7 +237,7 @@ update_people :: proc(g: ^Game) {
 				p.next_move_hours = next_step_time(p.next_move_hours)
 				continue
 			}
-			if !hunt_snake(g, &p) && !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_from_ground(g, &p) && !skin_snake(g, &p) && !pursue_goal(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_spear(g, &p) && !craft_basket(g, &p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_reed_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
+			if !hunt_snake(g, &p) && !flee_snake(g, &p) && !eat_when_hungry(&p) && !eat_cooked(&p) && !eat_from_ground(g, &p) && !skin_snake(g, &p) && !cook_on_fire(g, &p) && !feed_fire(g, &p) && !fillet_fish(g, &p) && !load_stick(g, &p) && !fish_adjacent(g, &p) && !pursue_goal(g, &p) && !craft_twine(&p) && !craft_sharp_stone(&p) && !craft_spear(g, &p) && !craft_basket(g, &p) && !craft_short_sticks(g, &p) && !craft_knife(g, &p) && !gather_adjacent(g, &p) && !gather_stick_adjacent(g, &p) && !gather_reed_adjacent(g, &p) && !gather_stone_here(g, &p) && !gather_fiber_here(g, &p) && !drop_something(g, &p) {
 				d := DIRS[rand.int_max(len(DIRS))]
 				if can_enter(g, p.x + d.x, p.y + d.y) {
 					p.x += d.x
