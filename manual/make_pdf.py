@@ -143,7 +143,8 @@ chart_rot = bar_chart([("Corpse -> skeleton", 120), ("Skeleton gone", 1200)], un
 chart_dur = bar_chart([("Sharp stone", 12), ("Spear", 8), ("Net", 10), ("Fire drill", 6)], unit=" uses", color=C3, maxv=16)
 # 16-world, 3-year simulation results, oldest first: (label, worlds alive at the end, mean years lived)
 SIM = [("First manual", 0, 0.69), ("Rabbits and coats", 0, 0.67), ("Fires burn down, bug fixes", 0, 0.59),
-       ("Drying racks", 4, 1.53), ("Idle hands store food", 7, 1.91), ("Store opens for the starving", 8, 1.98)]
+       ("Drying racks", 4, 1.53), ("Idle hands store food", 7, 1.91), ("Store opens for the starving", 8, 1.98),
+       ("Racks kept, idle tools set down", 9, 1.94)]
 chart_sim = bar_chart([(n, a) for n, a, _ in SIM], label_w=210, unit=" of 16 alive", color=C3, maxv=16)
 chart_years = bar_chart([(n, y) for n, _, y in SIM], label_w=210, unit=" years", color=C1, maxv=3, fmt="{:.2f}")
 chart_cold = bar_chart([("No coat, no fire", 0), ("Fur coat", 15), ("Beside a lit fire", 15), ("Coat and fire", 30)], unit=" °C warmer", color=C2, maxv=36)
@@ -312,10 +313,10 @@ figure {{ margin: 8pt 0 12pt; break-inside: avoid; }} figcaption {{ font-size: 9
 <figure>{chart_years}<figcaption>Figure 12. Mean years lived across the 16 worlds (three is the most possible).</figcaption></figure>
 <p>The tribes that still die all starve, in one of two ways:</p>
 <ul>
-<li><b>A berry-poor first summer.</b> Worlds with few bushes cannot feed five people and lay in a store at the same time, and the store runs dry in the first winter.</li>
-<li><b>A short second year.</b> A world whose first store just lasted can come out of winter with fish and rabbits hunted out and lay in too little for the next.</li>
+<li><b>A berry-poor first summer.</b> In worlds with very few bushes, five people eat the berries faster than they grow and starve within months.</li>
+<li><b>A short first store.</b> Worlds with somewhat more berries lay in only 300-650 pieces, far short of a winter's worth, and starve near the end of the first winter.</li>
 </ul>
-<p>Those are your moments as a god: a Miracle Bush bears in any weather, and Manna feeds the starving.</p>
+<p>Every tribe that lives through its first winter lasts all three years. The first year is when a god is needed: a Miracle Bush bears in any weather, and Manna feeds the starving.</p>
 </body></html>"""
 
 out = HERE / "how-the-game-works.html"
