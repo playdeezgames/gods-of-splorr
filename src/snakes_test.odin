@@ -10,6 +10,7 @@ strip :: proc(g: ^Game) {
 	game_init_rect(g, 5, 1)
 	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
 	clear(&g.people)
+	clear(&g.rabbits)
 }
 
 @(private = "file")
@@ -134,6 +135,7 @@ fleeing_people_in_the_open_keep_out_of_reach :: proc(t: ^testing.T) {
 	defer game_destroy(&g)
 	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
 	clear(&g.people)
+	clear(&g.rabbits)
 	add_person(&g, 4, 4)
 	g.people[0].next_move_hours = 0
 	spawn_snake(&g, 3, 4)
@@ -247,7 +249,7 @@ unarmed_people_do_not_hunt_and_armed_ones_do_not_flee :: proc(t: ^testing.T) {
 }
 
 @(test)
-person_with_a_knife_skins_a_snake_corpse :: proc(t: ^testing.T) {
+person_with_a_sharp_stone_skins_a_snake_corpse :: proc(t: ^testing.T) {
 	rand.reset(46)
 	g: Game
 	strip(&g)
@@ -255,8 +257,8 @@ person_with_a_knife_skins_a_snake_corpse :: proc(t: ^testing.T) {
 	add_person(&g, 0, 0)
 	p := &g.people[0]
 	p.crafting = MAX_SKILL
-	testing.expect(t, !skin_snake(&g, p), "no knife")
-	p.hands[0] = .Knife
+	testing.expect(t, !skin_snake(&g, p), "no sharp stone")
+	p.hands[0] = .Sharp_Stone
 	testing.expect(t, !skin_snake(&g, p), "no corpse")
 	append(&g.ground_items, Ground_Item{x = 3, y = 0, item = .Snake_Corpse})
 	for _ in 0 ..< 3 { // walk over
@@ -280,7 +282,7 @@ clumsy_skinning_ruins_the_skin_but_not_the_meat :: proc(t: ^testing.T) {
 		add_person(&g, 1, 0)
 		p := &g.people[0]
 		p.crafting = 0
-		p.hands[0] = .Knife
+		p.hands[0] = .Sharp_Stone
 		append(&g.ground_items, Ground_Item{x = 1, y = 0, item = .Snake_Corpse})
 		testing.expect(t, skin_snake(&g, p), "skinning")
 		testing.expect_value(t, count_on_ground(&g, .Snake_Meat), 1)
@@ -337,21 +339,21 @@ spear_breaks_after_enough_thrusts :: proc(t: ^testing.T) {
 }
 
 @(test)
-knife_breaks_after_enough_skinnings :: proc(t: ^testing.T) {
+sharp_stone_breaks_after_enough_skinnings :: proc(t: ^testing.T) {
 	rand.reset(52)
 	g: Game
 	strip(&g)
 	defer game_destroy(&g)
 	add_person(&g, 1, 0)
-	g.people[0].hands[0] = .Knife
-	for i in 0 ..< KNIFE_DURABILITY {
-		testing.expect(t, holds(g.people[0], .Knife), "still has the knife")
+	g.people[0].hands[0] = .Sharp_Stone
+	for i in 0 ..< SHARP_STONE_DURABILITY {
+		testing.expect(t, holds(g.people[0], .Sharp_Stone), "still has the sharp stone")
 		append(&g.ground_items, Ground_Item{x = 1, y = 0, item = .Snake_Corpse})
 		testing.expect(t, skin_snake(&g, &g.people[0]), "skinning")
-		n, _ := uses_left(g.people[0], .Knife)
-		if i + 1 < KNIFE_DURABILITY {testing.expect_value(t, n, KNIFE_DURABILITY - i - 1)}
+		n, _ := uses_left(g.people[0], .Sharp_Stone)
+		if i + 1 < SHARP_STONE_DURABILITY {testing.expect_value(t, n, SHARP_STONE_DURABILITY - i - 1)}
 	}
-	testing.expect(t, !holds(g.people[0], .Knife), "the knife broke")
+	testing.expect(t, !holds(g.people[0], .Sharp_Stone), "the sharp stone broke")
 }
 
 @(test)
@@ -363,9 +365,9 @@ newly_made_tools_start_unworn :: proc(t: ^testing.T) {
 	add_person(&g, 1, 0)
 	p := &g.people[0]
 	p.wear[0] = 5 // left over from an old tool that broke
-	give_or_drop(&g, p, .Knife)
-	n, _ := uses_left(p^, .Knife)
-	testing.expect_value(t, n, KNIFE_DURABILITY)
+	give_or_drop(&g, p, .Sharp_Stone)
+	n, _ := uses_left(p^, .Sharp_Stone)
+	testing.expect_value(t, n, SHARP_STONE_DURABILITY)
 }
 
 @(test)
@@ -442,4 +444,43 @@ a_bite_wakes_a_sleeping_person :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, g.people[0].poison_hours > 0, "bitten")
 	testing.expect(t, !g.people[0].asleep, "woken by the bite")
+}
+
+@(test)
+people_walk_round_a_pond_to_reach_a_target :: proc(t: ^testing.T) {
+	rand.reset(140)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
+	for y in 3 ..< 12 {g.cells[y * g.width + 10] = .Pond} // a long wall of water
+	clear(&g.snakes)
+	for i in 1 ..< len(g.people) {g.people[i].x, g.people[i].y = 30 + i % 2, 30 + i / 2}
+	p := &g.people[0]
+	p.x, p.y = 8, 7
+	steps := 0
+	for !(p.x == 12 && p.y == 7) && steps < 60 {
+		testing.expect(t, step_toward(&g, p, 12, 7), "found a way")
+		steps += 1
+	}
+	testing.expect_value(t, p.x, 12)
+	testing.expect(t, steps < 30, "a sensible route")
+}
+
+@(test)
+a_walker_goes_round_someone_standing_in_the_way :: proc(t: ^testing.T) {
+	rand.reset(470)
+	g: Game
+	game_init_rect(&g, 5, 3)
+	defer game_destroy(&g)
+	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
+	clear(&g.people)
+	clear(&g.rabbits)
+	append(&g.people, Person{id = 1, x = 0, y = 1}, Person{id = 2, x = 1, y = 1})
+	p := &g.people[0]
+	for _ in 0 ..< 6 {
+		if p.x == 3 && p.y == 1 {break}
+		testing.expect(t, step_toward(&g, p, 3, 1), "moving")
+	}
+	testing.expect(t, p.x == 3 && p.y == 1, "got round")
 }

@@ -76,6 +76,7 @@ bushes_do_not_grow_in_the_cold :: proc(t: ^testing.T) {
 	g.cfg.latitude = 90 // polar: freezing all year
 	i := first_bush(&g)
 	g.bushes[i] = Bush{food = 1, max_food = 10}
+	g.clock.hours, g.bushes_updated_hours = 0, 0 // the start of the year, before spring
 	g.clock.hours += 24 * 30
 	update_bushes(&g)
 	testing.expect_value(t, g.bushes[i].food, f32(1))

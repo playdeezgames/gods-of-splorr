@@ -6,8 +6,8 @@ import "core:math/rand"
 START_PEOPLE :: 5
 WORLD_SIZE :: 32
 
-VIEW_W :: 20
-VIEW_H :: 15
+DEFAULT_ZOOM :: 15 // cells across the visible square
+MIN_ZOOM :: 5
 
 Terrain :: enum u8 {
 	Grass,
@@ -47,6 +47,12 @@ Game :: struct {
 	cursor_y:         int,
 	cam_x:            int,
 	cam_y:            int,
+	zoom:             int, // cells across the visible square, before the world's own size limits it
+	view_w:           int, // cells visible across and down: the zoom, or the whole world if that is smaller
+	view_h:           int,
+	following:        int, // id of the person the view follows, or 0
+	next_person_id:   int,
+	deaths:           [Death_Cause]int, // how many people have died of each cause
 	cfg:              Calendar_Config,
 	clock:            Clock,
 	people:           [dynamic]Person,
@@ -57,6 +63,8 @@ Game :: struct {
 	bushes_updated_hours: f64,
 	sticks:           []f32, // parallel to cells; sticks left where the cell is a Tree
 	fiber:            []f32, // parallel to cells; plant fiber left where the cell is Grass
+	stockpile_x:      int, // the cell where the tribe keeps its things; see roles.odin
+	stockpile_y:      int,
 	lit:              []bool, // parallel to cells; whether the Fire_Pit there is burning
 	fire_updated_hours: f64,
 	fish:             []f32, // parallel to cells; fish left where the cell is a Pond
@@ -66,6 +74,8 @@ Game :: struct {
 	terrain_updated_hours: f64,
 	ground_items:     [dynamic]Ground_Item, // things people have dropped
 	snakes:           [dynamic]Snake,
+	rabbits:          [dynamic]Rabbit,
+	next_rabbit_hours: f64, // when a rabbit may next wander in to a nearly empty world
 	armed:            Maybe(Power), // a click on the map casts this power there
 	faith:            f32, // the god's power to act; see powers.odin
 	faith_updated_hours: f64,
@@ -90,7 +100,7 @@ game_init :: proc(g: ^Game, size: int) {
 	game_init_rect(g, size, size)
 }
 
-// Worlds need not be square; a screen-sized one (VIEW_W by VIEW_H) is handy for testing.
+// Worlds need not be square; a screen-sized one (15 by 15 cells) is handy for testing.
 game_init_rect :: proc(g: ^Game, width, height: int) {
 	g.width, g.height = width, height
 	g.cfg = normalize_config(DEFAULT_CALENDAR)
@@ -125,13 +135,28 @@ game_init_rect :: proc(g: ^Game, width, height: int) {
 	for _ in 2 ..< START_PEOPLE {
 		spawn_person(g, rand.int_max(2) == 0 ? .Male : .Female)
 	}
+	if len(g.people) > 0 {g.stockpile_x, g.stockpile_y = g.people[0].x, g.people[0].y}
+	populate_rabbits(g)
+	assign_roles(g)
 	g.cursor_x = width / 2
 	g.cursor_y = height / 2
 	if len(g.people) > 0 { // start by looking at the first person
 		g.cursor_x, g.cursor_y = g.people[0].x, g.people[0].y
 	}
 	g.cam_x, g.cam_y = 0, 0
+	g.zoom = DEFAULT_ZOOM
+	fit_view(g)
 	follow_cursor(g)
+	set_start_time(g)
+}
+
+// Open the game in spring and point every "last updated" stamp at that moment. Needs the calendar config.
+set_start_time :: proc(g: ^Game) {
+	h := hours_per_year(g.cfg) * START_YEAR_FRACTION + START_HOUR
+	g.clock.hours = h
+	g.bushes_updated_hours, g.vitals_updated_hours, g.terrain_updated_hours = h, h, h
+	g.faith_updated_hours, g.fire_updated_hours = h, h
+	for &p in g.people {p.next_move_hours = next_step_time(h)}
 }
 
 game_destroy :: proc(g: ^Game) {
@@ -148,6 +173,7 @@ game_destroy :: proc(g: ^Game) {
 	delete(g.fish)
 	delete(g.ground_items)
 	delete(g.snakes)
+	delete(g.rabbits)
 }
 
 // The only way to lose: nobody is left alive.
@@ -162,6 +188,7 @@ restart_game :: proc(g: ^Game) {
 	g^ = {}
 	game_init_rect(g, width, height)
 	g.cfg = cfg
+	set_start_time(g)
 }
 
 in_bounds :: proc(g: ^Game, x, y: int) -> bool {
@@ -172,21 +199,66 @@ terrain_at :: proc(g: ^Game, x, y: int) -> Terrain {
 	return g.cells[y * g.width + x]
 }
 
-clamp_camera :: proc(g: ^Game) {
-	g.cam_x = clamp(g.cam_x, 0, max(g.width - VIEW_W, 0))
-	g.cam_y = clamp(g.cam_y, 0, max(g.height - VIEW_H, 0))
+// The visible square is `zoom` cells across, or the whole world if that is smaller.
+fit_view :: proc(g: ^Game) {
+	g.zoom = clamp(g.zoom, MIN_ZOOM, max(g.width, g.height, MIN_ZOOM))
+	g.view_w, g.view_h = min(g.zoom, g.width), min(g.zoom, g.height)
+	clamp_camera(g)
 }
 
+clamp_camera :: proc(g: ^Game) {
+	g.cam_x = clamp(g.cam_x, 0, max(g.width - g.view_w, 0))
+	g.cam_y = clamp(g.cam_y, 0, max(g.height - g.view_h, 0))
+}
+
+// Put the view's centre on (x, y), as near as the edges of the world allow.
+center_camera :: proc(g: ^Game, x, y: int) {
+	g.cam_x, g.cam_y = x - g.view_w / 2, y - g.view_h / 2
+	clamp_camera(g)
+}
+
+// Zoom in (negative) or out (positive) by delta cells, keeping the middle of the view where it was.
+zoom_view :: proc(g: ^Game, delta: int) {
+	cx, cy := g.cam_x + g.view_w / 2, g.cam_y + g.view_h / 2
+	g.zoom += delta
+	fit_view(g)
+	center_camera(g, cx, cy)
+	g.cursor_x = clamp(g.cursor_x, g.cam_x, g.cam_x + g.view_w - 1)
+	g.cursor_y = clamp(g.cursor_y, g.cam_y, g.cam_y + g.view_h - 1)
+}
+
+// Look at one person: the view stays centred on them until the follow is dropped (or they die).
+follow_person :: proc(g: ^Game, id: int) {
+	g.following = id
+}
+
+// Index of the person being followed, or -1 (and the follow is dropped if they are gone).
+followed_index :: proc(g: ^Game) -> int {
+	if g.following == 0 {return -1}
+	for p, i in g.people {
+		if p.id == g.following {return i}
+	}
+	g.following = 0
+	return -1
+}
+
+// Keep the view on the followed person; called every frame.
+update_follow :: proc(g: ^Game) {
+	if i := followed_index(g); i >= 0 {
+		center_camera(g, g.people[i].x, g.people[i].y)
+	}
+}
 // Scroll the camera the minimum amount that keeps the cursor on screen.
 follow_cursor :: proc(g: ^Game) {
 	if g.cursor_x < g.cam_x {g.cam_x = g.cursor_x}
-	if g.cursor_x >= g.cam_x + VIEW_W {g.cam_x = g.cursor_x - VIEW_W + 1}
+	if g.cursor_x >= g.cam_x + g.view_w {g.cam_x = g.cursor_x - g.view_w + 1}
 	if g.cursor_y < g.cam_y {g.cam_y = g.cursor_y}
-	if g.cursor_y >= g.cam_y + VIEW_H {g.cam_y = g.cursor_y - VIEW_H + 1}
+	if g.cursor_y >= g.cam_y + g.view_h {g.cam_y = g.cursor_y - g.view_h + 1}
 	clamp_camera(g)
 }
 
 move_cursor :: proc(g: ^Game, dx, dy: int) {
+	g.following = 0 // steering the cursor means looking where you like
 	g.cursor_x = clamp(g.cursor_x + dx, 0, g.width - 1)
 	g.cursor_y = clamp(g.cursor_y + dy, 0, g.height - 1)
 	follow_cursor(g)
@@ -203,9 +275,10 @@ hover_cell :: proc(g: ^Game, view_x, view_y: int) {
 // Pan the camera without moving the cursor off its screen position, so the
 // cell under a stationary mouse is the one the cursor lands on.
 pan_camera :: proc(g: ^Game, dx, dy: int) {
+	g.following = 0
 	g.cam_x += dx
 	g.cam_y += dy
 	clamp_camera(g)
-	g.cursor_x = clamp(g.cursor_x, g.cam_x, g.cam_x + VIEW_W - 1)
-	g.cursor_y = clamp(g.cursor_y, g.cam_y, g.cam_y + VIEW_H - 1)
+	g.cursor_x = clamp(g.cursor_x, g.cam_x, g.cam_x + g.view_w - 1)
+	g.cursor_y = clamp(g.cursor_y, g.cam_y, g.cam_y + g.view_h - 1)
 }

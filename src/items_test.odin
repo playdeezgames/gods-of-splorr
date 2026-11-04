@@ -8,6 +8,7 @@ import "core:testing"
 item_world :: proc(g: ^Game) {
 	game_init_rect(g, 5, 1)
 	clear(&g.people)
+	clear(&g.rabbits)
 	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
 	append(&g.people, Person{x = 2, y = 0, health = MAX_HEALTH, satiety = 50, stomach = 50, energy = 100, sleep_hours = 8, foraging = MAX_SKILL, crafting = MAX_SKILL, hand_count = DEFAULT_HANDS})
 }
@@ -145,16 +146,16 @@ two_fibers_make_one_twine_which_can_be_dropped :: proc(t: ^testing.T) {
 	item_world(&g)
 	defer game_destroy(&g)
 	p := &g.people[0]
-	testing.expect(t, !craft_twine(p), "nothing in hand")
+	testing.expect(t, !craft_twine(&g, p), "nothing in hand")
 	p.hands[0] = .Fiber
-	testing.expect(t, !craft_twine(p), "one fiber is not enough")
+	testing.expect(t, !craft_twine(&g, p), "one fiber is not enough")
 	p.hands[1] = .Stick
-	testing.expect(t, !craft_twine(p), "a stick is not fiber")
+	testing.expect(t, !craft_twine(&g, p), "a stick is not fiber")
 	p.hands[1] = .Fiber
-	testing.expect(t, craft_twine(p), "two fibers")
+	testing.expect(t, craft_twine(&g, p), "two fibers")
 	testing.expect_value(t, p.hands[0], Item.Twine)
 	testing.expect_value(t, p.hands[1], Item.None)
-	testing.expect(t, !craft_twine(p), "the fibers are used up")
+	testing.expect(t, !craft_twine(&g, p), "the fibers are used up")
 	testing.expect(t, drop_item(&g, p, 0), "drop twine")
 	buf: [80]byte
 	testing.expect_value(t, describe_ground_items(&g, 2, 0, buf[:]), "1 twine")
@@ -171,7 +172,7 @@ twine_crafting_works_with_fibers_in_any_hands :: proc(t: ^testing.T) {
 	p := &g.people[0]
 	p.hand_count = 4
 	p.hands = {0 = .Stone, 1 = .Fiber, 2 = .Stick, 3 = .Fiber}
-	testing.expect(t, craft_twine(p), "craft")
+	testing.expect(t, craft_twine(&g, p), "craft")
 	testing.expect_value(t, p.hands, [MAX_SLOTS]Item{0 = .Stone, 1 = .Twine, 2 = .Stick})
 }
 
@@ -234,7 +235,7 @@ poor_crafting_wastes_a_fiber :: proc(t: ^testing.T) {
 	for _ in 0 ..< 200 {
 		p.craft_levels = {} // every attempt is an unpracticed one
 		p.hands = {0 = .Fiber, 1 = .Fiber}
-		testing.expect(t, craft_twine(p), "an attempt is made")
+		testing.expect(t, craft_twine(&g, p), "an attempt is made")
 		if p.hands[0] == .Twine {made += 1} else {botched += 1; testing.expect_value(t, held_count(p^), 1)}
 	}
 	testing.expect(t, botched > 100 && made > 20, "mostly botched at skill 0")
@@ -290,17 +291,19 @@ two_stones_make_a_sharp_stone_and_keep_one_stone :: proc(t: ^testing.T) {
 	item_world(&g)
 	defer game_destroy(&g)
 	p := &g.people[0]
-	testing.expect(t, !craft_sharp_stone(p), "nothing in hand")
+	testing.expect(t, !craft_sharp_stone(&g, p), "nothing in hand")
 	p.hands = {0 = .Stone}
-	testing.expect(t, !craft_sharp_stone(p), "one stone is not enough")
+	testing.expect(t, !craft_sharp_stone(&g, p), "one stone is not enough")
 	p.hands = {0 = .Stone, 1 = .Fiber}
-	testing.expect(t, !craft_sharp_stone(p), "a fiber is not a stone")
+	testing.expect(t, !craft_sharp_stone(&g, p), "a fiber is not a stone")
 	p.hands = {0 = .Stone, 1 = .Stone}
-	testing.expect(t, craft_sharp_stone(p), "two stones")
-	testing.expect_value(t, p.hands[0], Item.Stone)
-	testing.expect_value(t, p.hands[1], Item.Sharp_Stone)
-	testing.expect(t, !craft_sharp_stone(p), "only one stone is left")
-	testing.expect(t, drop_item(&g, p, 1), "drop the sharp stone")
+	testing.expect(t, craft_sharp_stone(&g, p), "two stones")
+	testing.expect_value(t, have_count(&g, p^, .Stone), 1)
+	testing.expect(t, holds(p^, .Sharp_Stone), "made a sharp stone")
+	testing.expect(t, !craft_sharp_stone(&g, p), "only one stone is left")
+	for h in 0 ..< p.hand_count {
+		if p.hands[h] == .Sharp_Stone {testing.expect(t, drop_item(&g, p, h), "drop the sharp stone")}
+	}
 	buf: [80]byte
 	testing.expect_value(t, describe_ground_items(&g, 2, 0, buf[:]), "1 sharp stone")
 	g.clock.hours += 1e6
@@ -320,9 +323,9 @@ failed_sharp_stone_crafting_loses_one_stone_but_keeps_the_other :: proc(t: ^test
 	for _ in 0 ..< 200 {
 		p.craft_levels = {}
 		p.hands = {0 = .Stone, 1 = .Stone}
-		testing.expect(t, craft_sharp_stone(p), "an attempt is made")
-		testing.expect_value(t, p.hands[0], Item.Stone) // always survives
-		if p.hands[1] == .Sharp_Stone {made += 1} else {lost += 1; testing.expect_value(t, p.hands[1], Item.None)}
+		testing.expect(t, craft_sharp_stone(&g, p), "an attempt is made")
+		testing.expect_value(t, have_count(&g, p^, .Stone), 1) // always survives
+		if holds(p^, .Sharp_Stone) {made += 1} else {lost += 1; testing.expect_value(t, held_count(p^), 1)}
 	}
 	testing.expect(t, lost > 100 && made > 20, "mostly fails at skill 0")
 }
@@ -387,87 +390,6 @@ drop_at_feet :: proc(g: ^Game, p: Person, item: Item) {
 }
 
 @(test)
-knife_needs_sharp_stone_short_stick_and_twine :: proc(t: ^testing.T) {
-	g: Game
-	item_world(&g)
-	defer game_destroy(&g)
-	p := &g.people[0]
-	testing.expect(t, !craft_knife(&g, p), "nothing")
-	p.hands = {0 = .Sharp_Stone, 1 = .Short_Stick}
-	testing.expect(t, !craft_knife(&g, p), "no twine")
-	p.hands = {0 = .Stone, 1 = .Short_Stick}
-	drop_at_feet(&g, p^, .Twine)
-	testing.expect(t, !craft_knife(&g, p), "a plain stone is not sharp")
-	testing.expect_value(t, len(g.ground_items), 1) // nothing was spent
-	p.hands = {0 = .Sharp_Stone, 1 = .Stick}
-	testing.expect(t, !craft_knife(&g, p), "a long stick is not a handle")
-}
-
-@(test)
-knife_uses_ingredients_from_hands_and_the_ground :: proc(t: ^testing.T) {
-	g: Game
-	item_world(&g)
-	defer game_destroy(&g)
-	p := &g.people[0]
-	// two in hand, the short stick on the ground
-	p.hands = {0 = .Sharp_Stone, 1 = .Twine}
-	drop_at_feet(&g, p^, .Short_Stick)
-	drop_at_feet(&g, p^, .Stick) // unrelated clutter stays
-	testing.expect(t, craft_knife(&g, p), "craft")
-	testing.expect_value(t, held_count(p^), 1)
-	testing.expect(t, p.hands[0] == .Knife || p.hands[1] == .Knife, "holding the knife")
-	testing.expect_value(t, len(g.ground_items), 1)
-	testing.expect_value(t, g.ground_items[0].item, Item.Stick)
-	// all three on the ground: the knife goes to a free hand
-	clear(&g.ground_items)
-	p.hands = {}
-	for item in KNIFE_INGREDIENTS {drop_at_feet(&g, p^, item)}
-	drop_at_feet(&g, p^, .Short_Stick) // a spare handle
-	testing.expect(t, craft_knife(&g, p), "craft from the ground")
-	testing.expect_value(t, p.hands[0], Item.Knife)
-	testing.expect_value(t, len(g.ground_items), 1)
-	testing.expect_value(t, g.ground_items[0].item, Item.Short_Stick)
-	// items on other cells do not count
-	p.hands = {0 = .Sharp_Stone, 1 = .Twine}
-	clear(&g.ground_items)
-	append(&g.ground_items, Ground_Item{x = 4, y = 0, item = .Short_Stick, dropped_hours = g.clock.hours})
-	testing.expect(t, !craft_knife(&g, p), "the handle is out of reach")
-	// full hands and the knife lands on the ground
-	p.hands = {0 = .Sharp_Stone, 1 = .Twine}
-	clear(&g.ground_items)
-	drop_at_feet(&g, p^, .Short_Stick)
-	p.hand_count = 2
-	testing.expect(t, craft_knife(&g, p), "craft")
-	testing.expect_value(t, held_count(p^), 1)
-}
-
-@(test)
-failed_knife_crafting_wastes_only_the_twine :: proc(t: ^testing.T) {
-	rand.reset(41)
-	g: Game
-	item_world(&g)
-	defer game_destroy(&g)
-	p := &g.people[0]
-	p.crafting = 0
-	made, failed := 0, 0
-	for _ in 0 ..< 200 {
-		p.craft_levels = {}
-		clear(&g.ground_items)
-		p.hands = {0 = .Sharp_Stone, 1 = .Twine}
-		drop_at_feet(&g, p^, .Short_Stick)
-		testing.expect(t, craft_knife(&g, p), "an attempt is made")
-		knife := p.hands[0] == .Knife || p.hands[1] == .Knife
-		if knife {made += 1} else {
-			failed += 1
-			testing.expect_value(t, p.hands[0], Item.Sharp_Stone)
-			testing.expect_value(t, p.hands[1], Item.None)
-			testing.expect_value(t, len(g.ground_items), 1) // the short stick is still there
-		}
-	}
-	testing.expect(t, failed > 100 && made > 20, "mostly fails at skill 0")
-}
-
-@(test)
 describing_a_big_pile_never_overflows_the_text_buffer :: proc(t: ^testing.T) {
 	g: Game
 	item_world(&g)
@@ -479,4 +401,26 @@ describing_a_big_pile_never_overflows_the_text_buffer :: proc(t: ^testing.T) {
 	buf: [80]byte
 	s := describe_ground_items(&g, 2, 0, buf[:])
 	testing.expect(t, len(s) > 0 && len(s) <= len(buf), "fits in the buffer")
+}
+
+@(test)
+twine_stones_and_short_sticks_can_be_crafted_from_the_ground :: proc(t: ^testing.T) {
+	rand.reset(120)
+	g: Game
+	item_world(&g)
+	defer game_destroy(&g)
+	p := &g.people[0]
+	p.crafting = MAX_SKILL
+	p.hands = {}
+	for _ in 0 ..< 2 {append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = .Fiber})}
+	testing.expect(t, craft_twine(&g, p), "twine from fibers on the ground")
+	testing.expect_value(t, p.hands[0], Item.Twine)
+	testing.expect_value(t, len(g.ground_items), 0)
+	for _ in 0 ..< 2 {append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = .Stone})}
+	testing.expect(t, craft_sharp_stone(&g, p), "sharp stone from stones on the ground")
+	testing.expect(t, holds(p^, .Sharp_Stone), "in hand")
+	append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = .Stick})
+	testing.expect(t, craft_short_sticks(&g, p), "short sticks from a stick on the ground")
+	testing.expect_value(t, have_count(&g, p^, .Short_Stick), 2)
+	testing.expect_value(t, have_count(&g, p^, .Stick), 0)
 }

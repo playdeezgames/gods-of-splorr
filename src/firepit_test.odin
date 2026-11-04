@@ -10,6 +10,7 @@ camp :: proc(g: ^Game, w, h: int) {
 	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
 	for &f in g.fiber {f = 0}
 	clear(&g.people)
+	clear(&g.rabbits)
 	append(&g.people, Person{x = 1, y = 1, health = MAX_HEALTH, satiety = MAX_SATIETY, energy = MAX_ENERGY, sleep_hours = 8, hand_count = DEFAULT_HANDS, crafting = MAX_SKILL, foraging = MAX_SKILL, next_move_hours = 1e9})
 }
 
@@ -65,19 +66,19 @@ failed_bow_destroys_the_twine_and_only_the_twine :: proc(t: ^testing.T) {
 }
 
 @(test)
-stake_is_a_short_stick_worked_with_a_knife :: proc(t: ^testing.T) {
+stake_is_a_short_stick_worked_with_a_sharp_stone :: proc(t: ^testing.T) {
 	rand.reset(143)
 	g: Game
 	camp(&g, 3, 3)
 	defer game_destroy(&g)
 	p := &g.people[0]
 	p.hands[0] = .Short_Stick
-	testing.expect(t, !craft_stake(&g, p), "no knife")
-	p.hands[1] = .Knife
+	testing.expect(t, !craft_stake(&g, p), "no sharp stone")
+	p.hands[1] = .Sharp_Stone
 	testing.expect(t, craft_stake(&g, p), "stake")
-	testing.expect(t, holds(p^, .Stake) && holds(p^, .Knife) && !holds(p^, .Short_Stick), "the knife is kept, the short stick becomes a stake")
-	n, _ := uses_left(p^, .Knife)
-	testing.expect_value(t, n, KNIFE_DURABILITY - 1) // using the knife wears it
+	testing.expect(t, holds(p^, .Stake) && holds(p^, .Sharp_Stone) && !holds(p^, .Short_Stick), "the sharp stone is kept, the short stick becomes a stake")
+	n, _ := uses_left(p^, .Sharp_Stone)
+	testing.expect_value(t, n, SHARP_STONE_DURABILITY - 1) // using the sharp stone wears it
 	pile(&g, 1, 1, .Short_Stick, 1) // a short stick at the feet works too
 	p.hands[0] = .None
 	testing.expect(t, craft_stake(&g, p), "stake from the ground")
@@ -85,7 +86,7 @@ stake_is_a_short_stick_worked_with_a_knife :: proc(t: ^testing.T) {
 }
 
 @(test)
-failed_stake_destroys_the_short_stick_but_keeps_the_knife :: proc(t: ^testing.T) {
+failed_stake_destroys_the_short_stick_but_keeps_the_sharp_stone :: proc(t: ^testing.T) {
 	rand.reset(144)
 	failures := 0
 	for _ in 0 ..< 60 {
@@ -93,11 +94,11 @@ failed_stake_destroys_the_short_stick_but_keeps_the_knife :: proc(t: ^testing.T)
 		camp(&g, 3, 3)
 		p := &g.people[0]
 		p.crafting = 0
-		p.hands[0], p.hands[1] = .Short_Stick, .Knife
+		p.hands[0], p.hands[1] = .Short_Stick, .Sharp_Stone
 		testing.expect(t, craft_stake(&g, p), "an attempt is made")
 		if !holds(p^, .Stake) {
 			failures += 1
-			testing.expect(t, !holds(p^, .Short_Stick) && holds(p^, .Knife), "short stick gone, knife kept")
+			testing.expect(t, !holds(p^, .Short_Stick) && holds(p^, .Sharp_Stone), "short stick gone, sharp stone kept")
 		}
 		game_destroy(&g)
 	}
@@ -193,15 +194,16 @@ firepit_needs_a_free_neighbour_and_cannot_be_walked_on :: proc(t: ^testing.T) {
 	g.cells[1] = .Pond // north
 	g.cells[3] = .Tree // west
 	g.cells[5] = .Bush // east
-	pile(&g, 1, 2, .Fiber, 1) // south has something lying on it
-	testing.expect(t, !build_fire_pit(&g, p), "no empty square next door")
-	testing.expect_value(t, len(g.ground_items), 17)
-	for i in 0 ..< len(g.ground_items) { // clear the south cell
-		if g.ground_items[i].item == .Fiber {unordered_remove(&g.ground_items, i); break}
-	}
+	g.cells[7] = .Pond // south: nowhere to build
+	testing.expect(t, !build_fire_pit(&g, p), "no free square next door")
+	testing.expect_value(t, len(g.ground_items), 16)
+	g.cells[7] = .Grass
+	pile(&g, 1, 2, .Fiber, 1) // a little clutter on the one free square does not stop it
 	testing.expect(t, build_fire_pit(&g, p), "now there is room")
 	testing.expect(t, !walkable(.Fire_Pit), "no walking on it")
 	testing.expect(t, !can_enter(&g, 1, 2), "people cannot step onto the pit")
+	testing.expect_value(t, len(g.ground_items), 1) // the clutter was moved aside, not lost
+	testing.expect_value(t, have_count(&g, p^, .Fiber), 1)
 }
 
 @(test)
@@ -242,4 +244,46 @@ a_person_with_a_goal_hauls_materials_to_a_site_and_builds_a_firepit :: proc(t: ^
 	testing.expect(t, built, "the firepit got built")
 	testing.expect_value(t, p.craft_levels[.Fire_Pit], 1)
 	testing.expect(t, !p.has_site, "the site is forgotten once the pit stands")
+}
+
+@(test)
+a_lighter_walks_to_a_drill_lying_on_the_ground :: proc(t: ^testing.T) {
+	rand.reset(121)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	p := &g.people[0]
+	p.hands = {}
+	clear(&g.ground_items)
+	append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = .Fire_Drill})
+	x, y, ok := nearest_ground(&g, p^, .Fire_Drill)
+	testing.expect(t, ok && x == p.x && y == p.y, "found the drill")
+	testing.expect(t, pick_up(&g, p, .Fire_Drill), "picked it up")
+	testing.expect(t, holds(p^, .Fire_Drill), "in hand")
+	testing.expect_value(t, len(g.ground_items), 0)
+}
+
+@(test)
+a_pit_is_built_even_when_every_free_cell_beside_the_builder_has_clutter :: proc(t: ^testing.T) {
+	rand.reset(141)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	for i in 0 ..< len(g.cells) {g.cells[i] = .Grass}
+	p := &g.people[0]
+	p.x, p.y = 10, 10
+	for i in 1 ..< len(g.people) {g.people[i].x, g.people[i].y = 30 + i % 2, 30 + i / 2}
+	for d in DIRS {append(&g.ground_items, Ground_Item{x = 10 + d.x, y = 10 + d.y, item = .Twine})}
+	for _ in 0 ..< FIRE_PIT_STONES {append(&g.ground_items, Ground_Item{x = 10, y = 10, item = .Stone})}
+	for _ in 0 ..< FIRE_PIT_STICKS {append(&g.ground_items, Ground_Item{x = 10, y = 10, item = .Stick})}
+	testing.expect(t, build_fire_pit(&g, p), "built")
+	px, py, _ := pit_spot(&g, 10, 10)
+	_ = px
+	_ = py
+	pits := 0
+	for tt in g.cells {if tt == .Fire_Pit {pits += 1}}
+	testing.expect_value(t, pits, 1)
+	for it in g.ground_items {
+		testing.expect(t, terrain_at(&g, it.x, it.y) != .Fire_Pit, "nothing is buried in the pit")
+	}
 }

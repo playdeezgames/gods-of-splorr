@@ -7,11 +7,15 @@ import "core:math/rand"
 Bush :: struct {
 	food:     f32,
 	max_food: f32, // randomly rolled per bush when the world is generated
+	health:   f32, // a fumbled forage damages the bush; at zero it is destroyed and its berries fall
 	miracle:  bool, // a god-made bush: holds a lot, regrows fast, and bears even in the cold
 }
 
 BUSH_MAX_FOOD_MIN :: 2.5
 BUSH_MAX_FOOD_MAX :: 10
+BUSH_MAX_HEALTH :: 10.0
+BUSH_FUMBLE_DAMAGE :: 1.0
+BUSH_HEAL_PER_HOUR :: 0.05 // a mauled bush mends over a few days
 BUSH_GROWTH_PER_HOUR :: 0.125 // food gained per game hour at the ideal temperature
 
 // Berries only grow between a lowest and a highest temperature (degrees C), fastest at the ideal.
@@ -37,7 +41,7 @@ BUSH_GROWTH_STEP_HOURS :: 1.0 // temperature is sampled this often so big time j
 
 roll_bush :: proc() -> Bush {
 	max_food := math.round(2 * (f32(BUSH_MAX_FOOD_MIN) + rand.float32() * f32(BUSH_MAX_FOOD_MAX - BUSH_MAX_FOOD_MIN))) / 2
-	return Bush{food = rand.float32() * max_food, max_food = max_food}
+	return Bush{food = rand.float32() * max_food, max_food = max_food, health = BUSH_MAX_HEALTH}
 }
 
 // Grow every bush by the game time elapsed since the last call, at a rate that follows
@@ -51,10 +55,11 @@ update_bushes :: proc(g: ^Game) {
 		sample.hours = from + step / 2
 		gain := g.bush_growth_per_hour * berry_growth_factor(temperature_c(sample, g.cfg)) * f32(step)
 		from += step
-		if gain <= 0 && !any_miracle(g) {continue}
 		for t, i in g.cells {
 			if t != .Bush {continue}
 			b := &g.bushes[i]
+			b.health = min(b.health + BUSH_HEAL_PER_HOUR * f32(step), BUSH_MAX_HEALTH)
+			if gain <= 0 && !b.miracle {continue}
 			if b.miracle {
 				b.food = min(b.food + g.bush_growth_per_hour * max(berry_growth_factor(temperature_c(sample, g.cfg)), MIRACLE_MIN_FACTOR) * MIRACLE_GROWTH_MULT * f32(step), b.max_food)
 				continue
@@ -62,6 +67,18 @@ update_bushes :: proc(g: ^Game) {
 			if gain > 0 {b.food = min(b.food + gain, b.max_food)}
 		}
 	}
+}
+
+// A fumbled forage hurts the bush. At zero health it is destroyed: every whole berry falls to the
+// ground where it stood, and the cell goes back to grass.
+damage_bush :: proc(g: ^Game, x, y: int) {
+	i := y * g.width + x
+	g.bushes[i].health -= BUSH_FUMBLE_DAMAGE
+	if g.bushes[i].health > 0 {return}
+	for _ in 0 ..< int(g.bushes[i].food) {
+		append(&g.ground_items, Ground_Item{x = x, y = y, item = .Food, dropped_hours = g.clock.hours})
+	}
+	clear_cell(g, x, y, .Grass)
 }
 
 any_miracle :: proc(g: ^Game) -> bool {

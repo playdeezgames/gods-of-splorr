@@ -13,18 +13,19 @@ yard :: proc(g: ^Game, w, h: int) {
 	for &s in g.sticks {s = 0}
 	for &r in g.reeds {r = 0}
 	clear(&g.people)
+	clear(&g.rabbits)
 	append(&g.people, Person{x = 0, y = 0, health = MAX_HEALTH, satiety = MAX_SATIETY, energy = MAX_ENERGY, sleep_hours = 8, hand_count = DEFAULT_HANDS, crafting = MAX_SKILL, foraging = MAX_SKILL, next_move_hours = 1e9})
 }
 
 @(test)
 first_time_rewards_most_and_repeats_shrink :: proc(t: ^testing.T) {
 	p := Person{}
-	first := craft_reward(p, .Knife)
+	first := craft_reward(p, .Sharp_Stone)
 	testing.expect_value(t, first, f32(CRAFT_REWARD * FIRST_CRAFT_MULT))
-	p.craft_levels[.Knife] = 1
-	second := craft_reward(p, .Knife)
-	p.craft_levels[.Knife] = 2
-	third := craft_reward(p, .Knife)
+	p.craft_levels[.Sharp_Stone] = 1
+	second := craft_reward(p, .Sharp_Stone)
+	p.craft_levels[.Sharp_Stone] = 2
+	third := craft_reward(p, .Sharp_Stone)
 	testing.expect(t, first > second && second > third && third > 0, "less and less")
 }
 
@@ -32,7 +33,7 @@ first_time_rewards_most_and_repeats_shrink :: proc(t: ^testing.T) {
 success_at_other_things_dulls_every_reward :: proc(t: ^testing.T) {
 	fresh, jaded := Person{}, Person{}
 	jaded.craft_levels[.Twine] = 100
-	testing.expect(t, craft_reward(jaded, .Knife) < craft_reward(fresh, .Knife), "a seasoned crafter is harder to thrill")
+	testing.expect(t, craft_reward(jaded, .Sharp_Stone) < craft_reward(fresh, .Sharp_Stone), "a seasoned crafter is harder to thrill")
 	testing.expect_value(t, total_crafts(jaded), 100)
 }
 
@@ -43,7 +44,7 @@ only_success_pays_dopamine_and_it_is_capped :: proc(t: ^testing.T) {
 	testing.expect(t, craft_roll(&p, .Twine), "always succeeds at skill 100")
 	testing.expect_value(t, p.dopamine, f32(20 + CRAFT_REWARD * FIRST_CRAFT_MULT))
 	p.dopamine = MAX_DOPAMINE - 1
-	craft_roll(&p, .Knife)
+	craft_roll(&p, .Sharp_Stone)
 	testing.expect_value(t, p.dopamine, f32(MAX_DOPAMINE))
 
 	failing := Person{crafting = -1000, dopamine = 20}
@@ -120,28 +121,28 @@ next_step_follows_the_recipe_chain :: proc(t: ^testing.T) {
 	yard(&g, 4, 1)
 	defer game_destroy(&g)
 	p := &g.people[0]
-	step := next_step(&g, p^, .Knife)
-	testing.expect_value(t, step, Step{raw = .Stone}) // a knife starts with stone
+	step := next_step(&g, p^, .Spear)
+	testing.expect_value(t, step, Step{raw = .Stone}) // a spear starts with a sharp stone, so stone
 	p.hands[0] = .Sharp_Stone
-	testing.expect_value(t, next_step(&g, p^, .Knife), Step{raw = .Stick}) // then a stick for the handle
-	append(&g.ground_items, Ground_Item{x = 0, y = 0, item = .Short_Stick}) // a handle lies at their feet
-	testing.expect_value(t, next_step(&g, p^, .Knife), Step{raw = .Fiber}) // then fiber for twine
-	p.hands[1] = .Fiber
-	append(&g.ground_items, Ground_Item{x = 0, y = 0, item = .Fiber}) // two fibers at hand: twist twine, fetch no more
-	testing.expect_value(t, next_step(&g, p^, .Knife), Step{craft = .Twine})
-	p.hands[1] = .Twine
-	testing.expect_value(t, next_step(&g, p^, .Knife), Step{craft = .Knife}) // everything to hand
+	testing.expect_value(t, next_step(&g, p^, .Spear), Step{raw = .Stick}) // then a stick for the shaft
+	p.hands[1] = .Stick
+	testing.expect_value(t, next_step(&g, p^, .Spear), Step{raw = .Fiber}) // then fiber for twine
+	append(&g.ground_items, Ground_Item{x = 0, y = 0, item = .Fiber})
+	append(&g.ground_items, Ground_Item{x = 0, y = 0, item = .Fiber}) // two fibers at their feet: twist twine
+	testing.expect_value(t, next_step(&g, p^, .Spear), Step{craft = .Twine})
+	append(&g.ground_items, Ground_Item{x = 0, y = 0, item = .Twine})
+	testing.expect_value(t, next_step(&g, p^, .Spear), Step{craft = .Spear}) // everything to hand
 }
 
 @(test)
-reeds_for_a_basket_come_after_a_knife :: proc(t: ^testing.T) {
+reeds_for_a_basket_come_after_a_sharp_stone :: proc(t: ^testing.T) {
 	rand.reset(136)
 	g: Game
 	yard(&g, 4, 1)
 	defer game_destroy(&g)
 	p := &g.people[0]
-	testing.expect_value(t, next_step(&g, p^, .Basket), Step{raw = .Stone}) // no knife yet: start on one
-	p.hands[0] = .Knife
+	testing.expect_value(t, next_step(&g, p^, .Basket), Step{raw = .Stone}) // no sharp stone yet: start on one
+	p.hands[0] = .Sharp_Stone
 	testing.expect_value(t, next_step(&g, p^, .Basket), Step{raw = .Reed})
 	for _ in 0 ..< BASKET_REEDS {append(&g.ground_items, Ground_Item{x = 0, y = 0, item = .Reed})}
 	testing.expect_value(t, next_step(&g, p^, .Basket), Step{craft = .Basket})
@@ -175,7 +176,7 @@ a_craving_person_with_ingredients_makes_the_goal_not_the_dull_thing :: proc(t: ^
 	p := &g.people[0]
 	p.dopamine = 0
 	p.satiety = MAX_SATIETY
-	for item in ([?]Item{.Twine, .Sharp_Stone, .Short_Stick, .Knife}) {p.craft_levels[item] = 5} // old hat
+	for item in ([?]Item{.Twine, .Sharp_Stone, .Short_Stick, .Sharp_Stone}) {p.craft_levels[item] = 5} // old hat
 	p.hands = {0 = .Sharp_Stone, 1 = .Stick}
 	append(&g.ground_items, Ground_Item{x = 0, y = 0, item = .Twine})
 	testing.expect(t, pursue_goal(&g, p), "made something")

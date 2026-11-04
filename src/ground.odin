@@ -19,12 +19,12 @@ fiber_at :: proc(g: ^Game, x, y: int) -> (f32, bool) {
 	return g.fiber[y * g.width + x], true
 }
 
-// Take up to one unit of fiber from the grass at (x, y); returns how much was taken. A tile
-// with none left becomes dirt.
-take_fiber :: proc(g: ^Game, x, y: int) -> f32 {
+// Take up to `amount` of fiber (one unit, unless a rabbit is nibbling) from the grass at (x, y); returns
+// how much was taken. A tile with none left becomes dirt.
+take_fiber :: proc(g: ^Game, x, y: int, amount: f32 = 1) -> f32 {
 	if _, ok := fiber_at(g, x, y); !ok {return 0}
 	i := y * g.width + x
-	taken := min(f32(1), g.fiber[i])
+	taken := min(amount, g.fiber[i])
 	g.fiber[i] -= taken
 	if g.fiber[i] <= 0 {
 		g.fiber[i] = 0
@@ -69,6 +69,9 @@ pit_spot :: proc(g: ^Game, x, y: int) -> (px, py: int, ok: bool) {
 			return x + d.x, y + d.y, true
 		}
 	}
+	for d in DIRS { // a crowded spot: scatter whatever lies on a free cell, rather than never build
+		if can_enter(g, x + d.x, y + d.y) {return x + d.x, y + d.y, true}
+	}
 	return 0, 0, false
 }
 
@@ -79,13 +82,16 @@ build_fire_pit :: proc(g: ^Game, p: ^Person) -> bool {
 	if !ok {return false}
 	spend(g, p, .Stone, FIRE_PIT_STONES)
 	spend(g, p, .Stick, FIRE_PIT_STICKS)
+	for &it in g.ground_items { // anything lying there (a drying rack, say) is moved to the builder's feet
+		if it.x == px && it.y == py {it.x, it.y = p.x, p.y}
+	}
 	clear_cell(g, px, py, .Fire_Pit)
 	g.fuel[py * g.width + px] = FIRE_PIT_FUEL
 	craft_credit(p, .Fire_Pit)
 	return true
 }
 
-// Ponds grow reeds that a person with a knife can cut. They regrow slowly up to a maximum.
+// Ponds grow reeds that a person with a sharp stone can cut. They regrow slowly up to a maximum.
 REEDS_PER_POND :: 6
 REED_REGROW_PER_HOUR :: 0.03
 
@@ -94,8 +100,8 @@ reeds_at :: proc(g: ^Game, x, y: int) -> (f32, bool) {
 	return g.reeds[y * g.width + x], true
 }
 
-STICKS_PER_TREE :: 3
-STICK_REGROW_PER_HOUR :: 0.002
+STICKS_PER_TREE :: 5
+STICK_REGROW_PER_HOUR :: 0.01 // a tree sheds a fresh stick every four days or so
 
 sticks_at :: proc(g: ^Game, x, y: int) -> (f32, bool) {
 	if !in_bounds(g, x, y) || terrain_at(g, x, y) != .Tree {return 0, false}

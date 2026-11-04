@@ -20,6 +20,7 @@ shore :: proc(g: ^Game) {
 	g.cells[4 + 9] = .Fire_Pit
 	g.fuel[4 + 9] = FIRE_PIT_FUEL
 	clear(&g.people)
+	clear(&g.rabbits)
 	append(&g.people, Person{x = 3, y = 1, health = MAX_HEALTH, satiety = MAX_SATIETY, energy = MAX_ENERGY, sleep_hours = 8, hand_count = 4, crafting = MAX_SKILL, foraging = MAX_SKILL, fishing = MAX_SKILL, cooking = MAX_SKILL, next_move_hours = 1e9})
 }
 
@@ -359,38 +360,38 @@ catches_pay_less_and_less_dopamine :: proc(t: ^testing.T) {
 // ---------- filets, stick, cooking ----------
 
 @(test)
-a_knife_turns_one_fish_into_two_filets :: proc(t: ^testing.T) {
+a_sharp_stone_turns_one_fish_into_two_filets :: proc(t: ^testing.T) {
 	rand.reset(173)
 	g: Game
 	shore(&g)
 	defer game_destroy(&g)
 	p := &g.people[0]
 	p.hands[0] = .Fish
-	testing.expect(t, !fillet_fish(&g, p), "no knife")
-	p.hands[1] = .Knife
+	testing.expect(t, !fillet_fish(&g, p), "no sharp stone")
+	p.hands[1] = .Sharp_Stone
 	testing.expect(t, fillet_fish(&g, p), "filleted")
 	testing.expect_value(t, count_held(p^, .Fish_Filet) + on_ground(&g, .Fish_Filet), 2)
 	testing.expect_value(t, count_held(p^, .Fish), 0)
-	n, _ := uses_left(p^, .Knife)
-	testing.expect_value(t, n, KNIFE_DURABILITY - 1)
+	n, _ := uses_left(p^, .Sharp_Stone)
+	testing.expect_value(t, n, SHARP_STONE_DURABILITY - 1)
 	testing.expect(t, !fillet_fish(&g, p), "no fish left")
 }
 
 @(test)
-a_knife_turns_a_stick_into_a_cooking_stick :: proc(t: ^testing.T) {
+a_sharp_stone_turns_a_stick_into_a_cooking_stick :: proc(t: ^testing.T) {
 	rand.reset(174)
 	g: Game
 	shore(&g)
 	defer game_destroy(&g)
 	p := &g.people[0]
 	p.hands[0] = .Stick
-	testing.expect(t, !craft_cooking_stick(&g, p), "no knife")
-	p.hands[1] = .Knife
+	testing.expect(t, !craft_cooking_stick(&g, p), "no sharp stone")
+	p.hands[1] = .Sharp_Stone
 	testing.expect(t, craft_cooking_stick(&g, p), "made")
 	testing.expect(t, holds(p^, .Cooking_Stick) && !holds(p^, .Stick), "the stick became a cooking stick")
 	testing.expect_value(t, p.craft_levels[.Cooking_Stick], 1)
-	n, _ := uses_left(p^, .Knife)
-	testing.expect_value(t, n, KNIFE_DURABILITY - 1)
+	n, _ := uses_left(p^, .Sharp_Stone)
+	testing.expect_value(t, n, SHARP_STONE_DURABILITY - 1)
 }
 
 @(test)
@@ -541,7 +542,7 @@ a_craving_person_cooks_a_meal :: proc(t: ^testing.T) {
 		if i == 8 + 4 * 9 {g.cells[i] = .Tree; g.sticks[i] = 20}
 	}
 	p := &g.people[0]
-	p.hands[0], p.hands[1] = .Knife, .Net
+	p.hands[0], p.hands[1] = .Sharp_Stone, .Net
 	for item in Item {p.craft_levels[item] = 50}
 	p.craft_levels[.Fish], p.craft_levels[.Cooked_Fish_Filet] = 0, 0 // unused slots, but harmless
 	p.fish_level = 5 // fishing is old news, so the goal is the meal

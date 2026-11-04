@@ -13,6 +13,7 @@ SPEEDS := [?]f64{0.25, 0.5, 1, 2, 4, 8, 16, 32}
 DEFAULT_SPEED_INDEX :: 2
 
 START_HOUR :: 8.0
+START_YEAR_FRACTION :: 1.0 / 6 // a game opens in the last month of spring, when berries are growing
 
 // Game hours in one calendar year, which depends on the configured days and months.
 hours_per_year :: proc(cfg: Calendar_Config) -> f64 {
@@ -117,6 +118,20 @@ temperature_c :: proc(c: Clock, cfg: Calendar_Config) -> f64 {
 	daily_amp := 4 + 5 * math.cos(lat)
 	daily := daily_amp * math.cos(math.TAU * (hour_of_day(c) - 15) / HOURS_PER_DAY)
 	return annual_mean + seasonal + daily
+}
+
+// The air temperature averaged over a day: the yearly mean and the season, without the daily swing.
+mean_temperature_c :: proc(c: Clock, cfg: Calendar_Config) -> f64 {
+	lat := math.to_radians(cfg.latitude)
+	annual_mean := 27 - 45 * math.sin(lat) * math.sin(lat)
+	return annual_mean + 22 * math.sin(lat) * math.sin(math.TAU * (year_fraction(c, cfg) - 0.06))
+}
+
+// Whether the seasons are on the way down: summer has peaked and the daily average is falling,
+// through autumn and winter until the spring thaw. Never true at the equator, which has no seasons.
+cooling_season :: proc(c: Clock, cfg: Calendar_Config) -> bool {
+	lat := math.to_radians(cfg.latitude)
+	return math.sin(lat) * math.cos(math.TAU * (year_fraction(c, cfg) - 0.06)) < 0
 }
 
 // Overlay colour for the day/night tint: transparent at midday, a warm wash

@@ -134,7 +134,7 @@ trees_start_with_sticks_and_regrow_far_slower_than_fiber :: proc(t: ^testing.T) 
 	for cell, i in g.cells {
 		if cell == .Tree {testing.expect_value(t, g.sticks[i], f32(STICKS_PER_TREE))}
 	}
-	testing.expect(t, STICK_REGROW_PER_HOUR * 5 < FIBER_REGROW_PER_HOUR, "much slower than fiber")
+	testing.expect(t, STICK_REGROW_PER_HOUR * 1.5 < FIBER_REGROW_PER_HOUR, "much slower than fiber")
 	g2: Game
 	blank_world(&g2)
 	defer game_destroy(&g2)

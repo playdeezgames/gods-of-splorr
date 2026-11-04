@@ -66,7 +66,7 @@ use_power :: proc(g: ^Game, power: Power) -> bool {
 		clear_cell(g, x, y, .Dirt)
 	case .Miracle_Bush:
 		clear_cell(g, x, y, .Bush)
-		g.bushes[y * g.width + x] = Bush{food = MIRACLE_MAX_FOOD, max_food = MIRACLE_MAX_FOOD, miracle = true}
+		g.bushes[y * g.width + x] = Bush{food = MIRACLE_MAX_FOOD, max_food = MIRACLE_MAX_FOOD, health = BUSH_MAX_HEALTH, miracle = true}
 	}
 	g.faith -= POWER_COSTS[power]
 	return true

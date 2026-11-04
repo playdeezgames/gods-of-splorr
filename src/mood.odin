@@ -9,7 +9,7 @@ MAX_DOPAMINE :: 100.0
 START_DOPAMINE :: 50.0
 DOPAMINE_HALF_LIFE_HOURS :: 12.0
 CRAVING_BELOW :: 35.0
-SEEK_MIN_SATIETY :: 60.0 // a hungry person is not out looking for things to make
+SEEK_MIN_SATIETY :: 60.0 // a hungry person is not out looking for things to make; they look for food
 
 CRAFT_REWARD :: 10.0 // before the multipliers below
 FIRST_CRAFT_MULT :: 4.0 // the first time a person ever makes a particular item
@@ -95,22 +95,25 @@ step_dopamine :: proc(p: ^Person, dt: f32) {
 }
 
 // Things people can set their hearts on, in the order that breaks ties between equally new ones.
-CRAFTABLE := [?]Item{.Twine, .Sharp_Stone, .Short_Stick, .Knife, .Spear, .Basket, .Bow, .Stake, .Fire_Drill, .Fire_Pit, .Net, .Cooking_Stick, .Fish, .Cooked_Fish_Filet}
+CRAFTABLE := [?]Item{.Twine, .Sharp_Stone, .Short_Stick, .Spear, .Basket, .Bow, .Stake, .Fire_Drill, .Fire_Pit, .Net, .Cooking_Stick, .Belt, .Fish, .Cooked_Fish_Filet}
 
 try_craft :: proc(g: ^Game, p: ^Person, item: Item) -> bool {
 	#partial switch item {
-	case .Twine: return craft_twine(p)
-	case .Sharp_Stone: return craft_sharp_stone(p)
+	case .Twine: return craft_twine(g, p)
+	case .Sharp_Stone: return craft_sharp_stone(g, p)
 	case .Short_Stick: return craft_short_sticks(g, p)
-	case .Knife: return craft_knife(g, p)
 	case .Spear: return craft_spear(g, p)
 	case .Basket: return craft_basket(g, p)
+	case .Rope: return craft_rope(g, p)
+	case .Belt: return craft_belt(g, p)
 	case .Bow: return craft_bow(g, p)
 	case .Stake: return craft_stake(g, p)
 	case .Fire_Drill: return craft_fire_drill(g, p)
 	case .Fire_Pit: return build_fire_pit(g, p)
 	case .Net: return craft_net(g, p)
 	case .Cooking_Stick: return craft_cooking_stick(g, p)
+	case .Fur_Coat: return craft_coat(g, p)
+	case .Drying_Rack: return craft_drying_rack(g, p)
 	}
 	return false
 }
@@ -132,8 +135,9 @@ have_count :: proc(g: ^Game, p: Person, item: Item) -> int {
 	for h in 0 ..< carry_slots(p) {
 		if p.hands[h] == item {n += 1}
 	}
+	n += packed_count(p, item)
 	for it in g.ground_items {
-		if it.x == p.x && it.y == p.y && it.item == item {n += 1}
+		if in_reach(it.x, it.y, p.x, p.y) && it.item == item {n += 1}
 	}
 	return n
 }
@@ -148,33 +152,39 @@ recipe_needs :: proc(item: Item) -> []Need {
 	@(static) twine := [?]Need{{.Fiber, 2}}
 	@(static) sharp := [?]Need{{.Stone, 2}}
 	@(static) short := [?]Need{{.Sharp_Stone, 1}, {.Stick, 1}}
-	@(static) knife := [?]Need{{.Sharp_Stone, 1}, {.Short_Stick, 1}, {.Twine, 1}}
 	@(static) spear := [?]Need{{.Sharp_Stone, 1}, {.Stick, 1}, {.Twine, 1}}
 	@(static) basket := [?]Need{{.Reed, BASKET_REEDS}}
+	@(static) rope := [?]Need{{.Twine, 2}}
+	@(static) belt := [?]Need{{.Rope, 2}}
 	@(static) bow := [?]Need{{.Stick, 1}, {.Twine, 1}}
-	@(static) stake := [?]Need{{.Knife, 1}, {.Short_Stick, 1}}
+	@(static) stake := [?]Need{{.Sharp_Stone, 1}, {.Short_Stick, 1}}
 	@(static) drill := [?]Need{{.Bow, 1}, {.Stake, 1}}
 	@(static) net := [?]Need{{.Twine, NET_TWINE}}
-	@(static) cooking_stick := [?]Need{{.Knife, 1}, {.Stick, 1}}
+	@(static) cooking_stick := [?]Need{{.Sharp_Stone, 1}, {.Stick, 1}}
+	@(static) coat := [?]Need{{.Fur, COAT_FUR}, {.Twine, 1}}
+	@(static) rack := [?]Need{{.Stick, RACK_STICKS}}
 	#partial switch item {
 	case .Twine: return twine[:]
 	case .Sharp_Stone: return sharp[:]
 	case .Short_Stick: return short[:]
-	case .Knife: return knife[:]
 	case .Spear: return spear[:]
 	case .Basket: return basket[:]
+	case .Rope: return rope[:]
+	case .Belt: return belt[:]
 	case .Bow: return bow[:]
 	case .Stake: return stake[:]
 	case .Fire_Drill: return drill[:]
 	case .Net: return net[:]
 	case .Cooking_Stick: return cooking_stick[:]
+	case .Fur_Coat: return coat[:]
+	case .Drying_Rack: return rack[:]
 	}
 	return nil
 }
 
 // What a person should do next on the way to making an item, working back through whatever they
 // must make first: either craft something now (the item itself, or an ingredient of it), or go and
-// get a raw material (fiber, stone, stick or reed). Reeds need a knife to cut.
+// get a raw material (fiber, stone, stick or reed). Reeds need a sharp stone to cut.
 Step :: struct {
 	craft: Item, // make this now, or .None
 	raw:   Item, // fetch this raw material, or .None
@@ -188,7 +198,7 @@ next_step :: proc(g: ^Game, p: Person, item: Item, depth := 0) -> Step {
 		case .Fiber, .Stone, .Stick:
 			return {raw = need.item}
 		case .Reed:
-			if !holds(p, .Knife) {return next_step(g, p, .Knife, depth + 1)}
+			if !holds(p, .Sharp_Stone) {return next_step(g, p, .Sharp_Stone, depth + 1)}
 			return {raw = .Reed}
 		}
 		return next_step(g, p, need.item, depth + 1)
@@ -231,7 +241,8 @@ gather_raw :: proc(g: ^Game, p: ^Person, raw: Item) -> bool {
 pursue_goal :: proc(g: ^Game, p: ^Person) -> bool {
 	if !craving(p^) || p.satiety < SEEK_MIN_SATIETY {return false}
 	for goal in by_reward(p^) {
-		if holds(p^, goal) && (goal == .Spear || goal == .Basket || goal == .Knife || goal == .Bow || goal == .Stake || goal == .Fire_Drill || goal == .Net || goal == .Cooking_Stick) {continue} // one is plenty
+		if holds(p^, goal) && (goal == .Spear || goal == .Basket || goal == .Bow || goal == .Stake || goal == .Fire_Drill || goal == .Net || goal == .Cooking_Stick || goal == .Belt) {continue} // one is plenty
+	
 		if goal == .Fish {
 			if pursue_fishing(g, p) {return true}
 			continue
@@ -329,7 +340,8 @@ nearest_match :: proc(g: ^Game, p: Person, match: proc(g: ^Game, x, y: int) -> b
 // Take the next step toward making something: craft it now, or go and get a raw material.
 pursue_step :: proc(g: ^Game, p: ^Person, step: Step) -> bool {
 	if step.craft != .None {return try_craft(g, p, step.craft)}
-	if step.raw == .None || free_hand(p^) < 0 {return false}
+	if step.raw == .None {return false}
+	if free_hand(p^) < 0 {return false}
 	if gather_raw(g, p, step.raw) {return true}
 	if tx, ty, found := nearest_source(g, p^, step.raw); found {return step_toward(g, p, tx, ty)}
 	return false
@@ -356,8 +368,8 @@ pursue_cooking :: proc(g: ^Game, p: ^Person) -> bool {
 	if !holds(p^, .Cooking_Stick) {return pursue_step(g, p, next_step(g, p^, .Cooking_Stick))}
 	if load_stick(g, p) {return true}
 	if have_count(g, p^, .Fish) > 0 { // cut the fish into filets
-		if holds(p^, .Knife) {return fillet_fish(g, p)}
-		return pursue_step(g, p, next_step(g, p^, .Knife))
+		if holds(p^, .Sharp_Stone) {return fillet_fish(g, p)}
+		return pursue_step(g, p, next_step(g, p^, .Sharp_Stone))
 	}
 	return pursue_fishing(g, p)
 }
@@ -368,7 +380,13 @@ is_fire_pit :: proc(g: ^Game, x, y: int) -> bool {
 
 // Light a pit that has fuel, making a fire drill first if need be.
 pursue_lighting :: proc(g: ^Game, p: ^Person) -> bool {
-	if !holds(p^, .Fire_Drill) {return pursue_step(g, p, next_step(g, p^, .Fire_Drill))}
+	if !holds(p^, .Fire_Drill) {
+		if gx, gy, found := nearest_ground(g, p^, .Fire_Drill); found { // someone left a drill lying about: take it
+			if gx == p.x && gy == p.y && pick_up(g, p, .Fire_Drill) {return true}
+			if free_hand(p^) >= 0 {return step_toward(g, p, gx, gy)}
+		}
+		return pursue_step(g, p, next_step(g, p^, .Fire_Drill))
+	}
 	if light_fire(g, p) {return true}
 	if tx, ty, found := nearest_match(g, p^, unlit_pit_with_fuel); found {return step_toward(g, p, tx, ty)}
 	// every pit is out of fuel: put a stick on one to bring it back
@@ -377,4 +395,89 @@ pursue_lighting :: proc(g: ^Game, p: ^Person) -> bool {
 	if !holds(p^, .Stick) {return pursue_step(g, p, Step{raw = .Stick})}
 	if add_stick(g, p, tx, ty) {return true}
 	return step_toward(g, p, tx, ty)
+}
+
+// A fire comes before everything but food: the first person alive builds a pit, then lights it whenever
+// the weather is cool enough for the warmth to matter. Others carry on; the fire is for the whole tribe.
+FIRE_LIGHT_BELOW_C :: 16.0
+
+fire_builder :: proc(g: ^Game, p: Person) -> bool {
+	return len(g.people) > 0 && g.people[0].id == p.id
+}
+
+pursue_fire :: proc(g: ^Game, p: ^Person) -> bool {
+	if !fire_builder(g, p^) {return false}
+	if _, _, has_pit := nearest_match(g, p^, is_fire_pit); !has_pit {return pursue_pit(g, p)}
+	if _, _, lit := nearest_match(g, p^, lit_pit); lit {return false}
+	if !holds(p^, .Fire_Drill) {return pursue_lighting(g, p)} // get the drill in good time, light the fire when it is cool
+	if temperature_c(g.clock, g.cfg) >= FIRE_LIGHT_BELOW_C {return false}
+	return pursue_lighting(g, p)
+}
+
+// Hungry: satiety has slipped under the seeking line and there is nothing waiting in the stomach.
+PREPARE_BELOW_SATIETY :: 90.0 // with no berries to be had, people set about fish and fire this early
+
+hungry :: proc(p: Person) -> bool {
+	return p.satiety < SEEK_MIN_SATIETY && p.stomach < EAT_BELOW_STOMACH
+}
+
+bush_with_food :: proc(g: ^Game, x, y: int) -> bool {
+	b, ok := bush_at(g, x, y)
+	return ok && b.food >= 1
+}
+
+// Put down something that is not worth keeping while hungry, to make a hand free for berries.
+make_room_for_food :: proc(g: ^Game, p: ^Person) -> bool {
+	for h in 0 ..< carry_slots(p^) {
+		#partial switch p.hands[h] {
+		case .None, .Food, .Basket, .Net, .Cooking_Stick, .Fire_Drill: continue
+		}
+		return drop_item(g, p, h)
+	}
+	for h in 0 ..< carry_slots(p^) { // all tools: set one down rather than starve; it can be fetched again
+		if p.hands[h] != .None && p.hands[h] != .Food && p.hands[h] != .Basket {return drop_item(g, p, h)}
+	}
+	return false
+}
+
+// Winter is coming, or here: from the end of summer on, or whenever the day's average is under this,
+// the berries have stopped growing and the stores will not last. This goes by the season and the daily
+// average, not the temperature of the moment, which swings far more between noon and night.
+PREPARE_MEAN_C :: 12.0
+
+winter_coming :: proc(g: ^Game) -> bool {
+	return cooling_season(g.clock, g.cfg) || mean_temperature_c(g.clock, g.cfg) < PREPARE_MEAN_C
+}
+
+// A hungry person goes after food before anything else: berries on a bush or fresh on the ground,
+// whichever is nearest; failing those, a meal of fish cooked at a fire, building the fire if need be.
+// From the end of summer, or with no berries left anywhere, even a fed person works at the fire and the fish,
+// since that is the only food that will last the winter.
+pursue_food :: proc(g: ^Game, p: ^Person) -> bool {
+	peckish := p.satiety < PREPARE_BELOW_SATIETY && p.stomach < EAT_BELOW_STOMACH
+	if p.role != .Generalist && !hungry(p^) {return false} // a specialist's job covers the preparing
+	soon := winter_coming(g)
+	if !hungry(p^) && !peckish && !soon {return false}
+	if gather_adjacent(g, p) {return true}
+	bx, by, on_bush := nearest_match(g, p^, bush_with_food)
+	gx, gy: int
+	on_ground: bool
+	best := max(int)
+	open := store_season(g, p^) && (!on_bush || abs(bx - p.x) + abs(by - p.y) > STORE_BUSH_RANGE) // see store_open
+	for it in g.ground_items {
+		if !edible_on_ground(g, it) || (is_dried(it.item) && !open) {continue}
+		if d := abs(it.x - p.x) + abs(it.y - p.y); d < best {best, gx, gy, on_ground = d, it.x, it.y, true}
+	}
+	if on_bush && on_ground && best < abs(bx - p.x) + abs(by - p.y) {on_bush = false}
+	preparing := soon || !(on_bush || on_ground)
+	if !hungry(p^) && !preparing {return false}
+	if hungry(p^) || !preparing {
+		if on_bush {
+			if free_hand(p^) < 0 {return make_room_for_food(g, p)} // setting it down is the turn, or the job would fill the hand again
+			return step_toward(g, p, bx, by)
+		}
+		if on_ground {return step_toward(g, p, gx, gy)}
+	}
+	if _, _, has_pit := nearest_match(g, p^, is_fire_pit); has_pit {return pursue_cooking(g, p)}
+	return pursue_pit(g, p)
 }

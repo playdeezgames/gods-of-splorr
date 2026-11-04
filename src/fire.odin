@@ -1,7 +1,7 @@
 package gods
 
 // A lit firepit burns its fuel down, a stick's worth at a time, and goes out when the fuel is gone.
-FIRE_BURN_PER_HOUR :: 0.5 // so eight sticks of fuel last sixteen game hours
+FIRE_BURN_PER_HOUR :: 0.25 // a stick burns four hours, so eight sticks last a day and a night
 FIRE_FEED_BELOW :: 2.0 // people top up a fire that is about to go out
 FIRE_FEED_FUEL :: 1.0 // one stick, one stick's worth
 

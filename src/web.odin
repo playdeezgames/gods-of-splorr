@@ -7,14 +7,10 @@ import "core:math"
 import "core:math/rand"
 import "core:time"
 
-TILE_PX :: 12
-SCALE :: 4
-CELL :: TILE_PX * SCALE // on-screen cell size in canvas pixels
-CANVAS_W :: VIEW_W * CELL
-CANVAS_H :: VIEW_H * CELL
+MAP_PX :: 720 // the map canvas is a square this many pixels across; zoom divides it into cells
+MINI_PX :: 256 // the minimap canvas, likewise
 
-MINI_CELL :: 3
-MINI_MARGIN :: 8
+cell: f32 // on-screen size of one map cell in canvas pixels, set at the start of each draw
 
 foreign import host "env"
 @(default_calling_convention = "contextless")
@@ -26,7 +22,8 @@ foreign host {
 	draw_tile_tinted :: proc(col, row: i32, x, y, size: f32, r, g, b: f32) ---
 	set_info :: proc(ptr: [^]byte, n: i32) ---
 	set_clock :: proc(ptr: [^]byte, n: i32) ---
-	set_layout :: proc(info_right, clock_bottom: bool) ---
+	use_canvas :: proc(which: i32) --- // 0 draws on the map, 1 on the minimap
+	set_view :: proc(zoom: i32, following: bool) --- // cells across the map canvas, and whether the view follows a person
 	set_powers :: proc(ptr: [^]byte, n: i32, armed: i32, affordable: i32) --- // button labels, one per line; armed power or -1; bitmask of affordable ones
 	set_over :: proc(ptr: [^]byte, n: i32) --- // text for the game-over screen; empty hides it
 }
@@ -92,78 +89,96 @@ step :: proc(dt: f64, c: runtime.Context) -> bool {
 		update_faith(&game)
 		update_fire(&game)
 		update_snakes(&game)
+		update_rabbits(&game)
 	}
+	update_follow(&game)
 	draw()
 	return true
 }
 
 draw :: proc() {
 	clear_canvas(0.03, 0.07, 0.03)
-	for vy in 0 ..< VIEW_H {
-		for vx in 0 ..< VIEW_W {
+	cell = f32(MAP_PX) / f32(game.zoom)
+	u := cell / 48 // small marks are drawn for 48-pixel cells and scaled with the zoom
+	m := 8 * u
+	for vy in 0 ..< game.view_h {
+		for vx in 0 ..< game.view_w {
 			x, y := game.cam_x + vx, game.cam_y + vy
 			if !in_bounds(&game, x, y) {continue}
-			px, py := f32(vx * CELL), f32(vy * CELL)
+			px, py := f32(vx) * cell, f32(vy) * cell
 			t := terrain_at(&game, x, y)
 			if t != .Grass {
-				draw_tile(GRASS_TILE.col, GRASS_TILE.row, px, py, CELL)
+				draw_tile(GRASS_TILE.col, GRASS_TILE.row, px, py, cell)
 			}
 			tile := TERRAIN_TILES[t]
 			if t == .Fire_Pit && !game.lit[y * game.width + x] { // an unlit pit is cold ashes
-				draw_tile_tinted(tile.col, tile.row, px, py, CELL, 0.45, 0.32, 0.25)
+				draw_tile_tinted(tile.col, tile.row, px, py, cell, 0.45, 0.32, 0.25)
 				continue
 			}
 			if b, ok := bush_at(&game, x, y); ok && b.miracle {
-				draw_tile_tinted(tile.col, tile.row, px, py, CELL, MIRACLE_COLOR.r, MIRACLE_COLOR.g, MIRACLE_COLOR.b)
+				draw_tile_tinted(tile.col, tile.row, px, py, cell, MIRACLE_COLOR.r, MIRACLE_COLOR.g, MIRACLE_COLOR.b)
 			} else {
-				draw_tile(tile.col, tile.row, px, py, CELL)
+				draw_tile(tile.col, tile.row, px, py, cell)
 			}
 			if reeds, ok := reeds_at(&game, x, y); ok { // reed bar: how many reeds are left to cut
-				fill_rect(px + 4, py + CELL - 8, CELL - 8, 4, 0, 0, 0, 0.6)
-				fill_rect(px + 4, py + CELL - 8, (CELL - 8) * reeds / REEDS_PER_POND, 4, 0.5, 0.85, 0.4, 1)
+				fill_rect(px + 4 * u, py + cell - 8 * u, cell - 8 * u, 4 * u, 0, 0, 0, 0.6)
+				fill_rect(px + 4 * u, py + cell - 8 * u, (cell - 8 * u) * reeds / REEDS_PER_POND, 4 * u, 0.5, 0.85, 0.4, 1)
 			}
 			if b, ok := bush_at(&game, x, y); ok { // berry bar: how full this bush is
-				fill_rect(px + 4, py + CELL - 8, CELL - 8, 4, 0, 0, 0, 0.6)
-				fill_rect(px + 4, py + CELL - 8, (CELL - 8) * b.food / b.max_food, 4, 0.9, 0.15, 0.25, 1)
+				fill_rect(px + 4 * u, py + cell - 8 * u, cell - 8 * u, 4 * u, 0, 0, 0, 0.6)
+				fill_rect(px + 4 * u, py + cell - 8 * u, (cell - 8 * u) * b.food / b.max_food, 4 * u, 0.9, 0.15, 0.25, 1)
+				if b.health < BUSH_MAX_HEALTH { // a bush that has been mauled shows how much it has left
+					fill_rect(px + 4 * u, py + 4 * u, cell - 8 * u, 3 * u, 0, 0, 0, 0.6)
+					fill_rect(px + 4 * u, py + 4 * u, (cell - 8 * u) * max(b.health, 0) / BUSH_MAX_HEALTH, 3 * u, 1, 0.55, 0.1, 1)
+				}
 			}
 		}
 	}
 
 	for it, i in game.ground_items { // dropped things sit in the bottom corner of their cell
 		vx, vy := it.x - game.cam_x, it.y - game.cam_y
-		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
+		if vx < 0 || vy < 0 || vx >= game.view_w || vy >= game.view_h {continue}
 		slot := 0
 		for other in game.ground_items[:i] {
 			if other.x == it.x && other.y == it.y {slot += 1}
 		}
-		ix, iy := f32(vx * CELL + CELL - 12 - slot * 10), f32(vy * CELL + CELL - 12)
+		ix, iy := f32(vx) * cell + cell - (12 + f32(slot) * 10) * u, f32(vy) * cell + cell - 12 * u
 		f := ground_freshness(&game, it)
 		fade := 0.4 + 0.6 * f // things darken as they rot
 		switch it.item {
-		case .Stone: fill_rect(ix, iy, 8, 8, 0.7, 0.7, 0.75, 1)
-		case .Sharp_Stone: fill_rect(ix, iy, 8, 8, 0.85, 0.95, 1, 1)
-		case .Short_Stick: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.35 * fade, 1)
-		case .Knife: fill_rect(ix, iy, 8, 8, 0.95, 0.95, 0.4, 1)
-		case .Spear: fill_rect(ix, iy, 8, 8, 0.95, 0.6, 0.2, 1)
-		case .Reed: fill_rect(ix, iy, 8, 8, 0.5 * fade, 0.85 * fade, 0.4 * fade, 1)
-		case .Bow: fill_rect(ix, iy, 8, 8, 0.7, 0.5, 0.25, 1)
-		case .Stake: fill_rect(ix, iy, 8, 8, 0.85, 0.7, 0.45, 1)
-		case .Fire_Drill: fill_rect(ix, iy, 8, 8, 0.95, 0.45, 0.2, 1)
-		case .Net: fill_rect(ix, iy, 8, 8, 0.8, 0.8, 0.9, 1)
-		case .Fish: fill_rect(ix, iy, 8, 8, 0.4 * fade, 0.7 * fade, 0.95 * fade, 1)
-		case .Fish_Filet: fill_rect(ix, iy, 8, 8, 0.95 * fade, 0.7 * fade, 0.6 * fade, 1)
-		case .Cooking_Stick: fill_rect(ix, iy, 8, 8, 0.75, 0.55, 0.3, 1)
-		case .Cooked_Snake_Meat, .Cooked_Fish_Filet: fill_rect(ix, iy, 8, 8, 0.7, 0.4, 0.2, 1) // only ever on a stick
+		case .Stone: fill_rect(ix, iy, m, m, 0.7, 0.7, 0.75, 1)
+		case .Sharp_Stone: fill_rect(ix, iy, m, m, 0.85, 0.95, 1, 1)
+		case .Short_Stick: fill_rect(ix, iy, m, m, 0.8 * fade, 0.6 * fade, 0.35 * fade, 1)
+		case .Spear: fill_rect(ix, iy, m, m, 0.95, 0.6, 0.2, 1)
+		case .Reed: fill_rect(ix, iy, m, m, 0.5 * fade, 0.85 * fade, 0.4 * fade, 1)
+		case .Bow: fill_rect(ix, iy, m, m, 0.7, 0.5, 0.25, 1)
+		case .Stake: fill_rect(ix, iy, m, m, 0.85, 0.7, 0.45, 1)
+		case .Fire_Drill: fill_rect(ix, iy, m, m, 0.95, 0.45, 0.2, 1)
+		case .Net: fill_rect(ix, iy, m, m, 0.8, 0.8, 0.9, 1)
+		case .Fish: fill_rect(ix, iy, m, m, 0.4 * fade, 0.7 * fade, 0.95 * fade, 1)
+		case .Fish_Filet: fill_rect(ix, iy, m, m, 0.95 * fade, 0.7 * fade, 0.6 * fade, 1)
+		case .Cooking_Stick: fill_rect(ix, iy, m, m, 0.75, 0.55, 0.3, 1)
+		case .Cooked_Snake_Meat, .Cooked_Fish_Filet, .Cooked_Rabbit_Meat: fill_rect(ix, iy, m, m, 0.7, 0.4, 0.2, 1) // only ever on a stick
+		case .Rabbit_Corpse: fill_rect(ix, iy, m, m, 0.55 * fade, 0.5 * fade, 0.45 * fade, 1)
+		case .Rabbit_Meat: fill_rect(ix, iy, m, m, 0.9 * fade, 0.45 * fade, 0.45 * fade, 1)
+		case .Fur: fill_rect(ix, iy, m, m, 0.75 * fade, 0.7 * fade, 0.6 * fade, 1)
+		case .Fur_Coat: fill_rect(ix, iy, m, m, 0.6, 0.45, 0.3, 1)
+		case .Drying: fill_rect(ix, iy, m, m, 0.8, 0.5, 0.35, 1)
+		case .Drying_Rack: fill_rect(ix, iy, m, m, 0.55, 0.4, 0.2, 1)
+		case .Dried_Berries: fill_rect(ix, iy, m, m, 0.45, 0.15, 0.2, 1)
+		case .Dried_Meat: fill_rect(ix, iy, m, m, 0.5, 0.25, 0.15, 1)
 		case .Fire_Pit: // never lies on the ground
-		case .Basket: fill_rect(ix, iy, 8, 8, 0.8 * fade, 0.6 * fade, 0.25 * fade, 1)
-		case .Snake_Corpse: fill_rect(ix, iy, 8, 8, 0.2 + 0.2 * fade, 0.5 * fade, 0.15, 1)
-		case .Snake_Meat: fill_rect(ix, iy, 8, 8, 0.95 * fade, 0.55 * fade, 0.6 * fade, 1)
-		case .Snake_Skin: fill_rect(ix, iy, 8, 8, 0.3 * fade, 0.7 * fade, 0.5 * fade, 1)
-		case .Fiber: fill_rect(ix, iy, 8, 8, 0.75 * fade, 0.85 * fade, 0.35 * fade, 1)
-		case .Stick: fill_rect(ix, iy, 8, 8, 0.6 * fade, 0.4 * fade, 0.2 * fade, 1)
-		case .Twine: fill_rect(ix, iy, 8, 8, 0.9 * fade, 0.75 * fade, 0.5 * fade, 1)
+		case .Basket: fill_rect(ix, iy, m, m, 0.8 * fade, 0.6 * fade, 0.25 * fade, 1)
+		case .Rope: fill_rect(ix, iy, m, m, 0.8 * fade, 0.65 * fade, 0.4 * fade, 1)
+		case .Belt: // never lies on the ground
+		case .Snake_Corpse: fill_rect(ix, iy, m, m, 0.2 + 0.2 * fade, 0.5 * fade, 0.15, 1)
+		case .Snake_Meat: fill_rect(ix, iy, m, m, 0.95 * fade, 0.55 * fade, 0.6 * fade, 1)
+		case .Snake_Skin: fill_rect(ix, iy, m, m, 0.3 * fade, 0.7 * fade, 0.5 * fade, 1)
+		case .Fiber: fill_rect(ix, iy, m, m, 0.75 * fade, 0.85 * fade, 0.35 * fade, 1)
+		case .Stick: fill_rect(ix, iy, m, m, 0.6 * fade, 0.4 * fade, 0.2 * fade, 1)
+		case .Twine: fill_rect(ix, iy, m, m, 0.9 * fade, 0.75 * fade, 0.5 * fade, 1)
 		case .Food: // berries go from red to brown
-			fill_rect(ix, iy, 8, 8, 0.35 + 0.55 * f, 0.25 - 0.1 * f, 0.1 + 0.15 * f, 1)
+			fill_rect(ix, iy, m, m, 0.35 + 0.55 * f, 0.25 - 0.1 * f, 0.1 + 0.15 * f, 1)
 		case .None:
 		}
 	}
@@ -171,33 +186,40 @@ draw :: proc() {
 	SNAKE_TILE :: Tile{2, 14}
 	for s in game.snakes {
 		vx, vy := s.x - game.cam_x, s.y - game.cam_y
-		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
-		draw_tile(SNAKE_TILE.col, SNAKE_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL)
+		if vx < 0 || vy < 0 || vx >= game.view_w || vy >= game.view_h {continue}
+		draw_tile(SNAKE_TILE.col, SNAKE_TILE.row, f32(vx) * cell, f32(vy) * cell, cell)
+	}
+
+	RABBIT_TILE :: Tile{3, 16}
+	for r in game.rabbits {
+		vx, vy := r.x - game.cam_x, r.y - game.cam_y
+		if vx < 0 || vy < 0 || vx >= game.view_w || vy >= game.view_h {continue}
+		draw_tile_tinted(RABBIT_TILE.col, RABBIT_TILE.row, f32(vx) * cell, f32(vy) * cell, cell, 0.8, 0.75, 0.7)
 	}
 
 	for c in game.corpses {
 		vx, vy := c.x - game.cam_x, c.y - game.cam_y
-		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
+		if vx < 0 || vy < 0 || vx >= game.view_w || vy >= game.view_h {continue}
 		if c.skeleton {
 			col := SKELETON_COLOR * (1 - 0.4 * corpse_rot_fraction(&game, c)) // bones dim as they crumble
-			draw_tile_tinted(SKELETON_TILE.col, SKELETON_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL, col.r, col.g, col.b)
+			draw_tile_tinted(SKELETON_TILE.col, SKELETON_TILE.row, f32(vx) * cell, f32(vy) * cell, cell, col.r, col.g, col.b)
 		} else {
 			col := skin_color(c.melanin) * CORPSE_SHADE * (1 - 0.4 * corpse_rot_fraction(&game, c)) // darkens as it rots
-			draw_tile_tinted(CORPSE_TILE.col, CORPSE_TILE.row, f32(vx * CELL), f32(vy * CELL), CELL, col.r, col.g, col.b)
+			draw_tile_tinted(CORPSE_TILE.col, CORPSE_TILE.row, f32(vx) * cell, f32(vy) * cell, cell, col.r, col.g, col.b)
 		}
 	}
 	for p in game.people {
 		vx, vy := p.x - game.cam_x, p.y - game.cam_y
-		if vx < 0 || vy < 0 || vx >= VIEW_W || vy >= VIEW_H {continue}
+		if vx < 0 || vy < 0 || vx >= game.view_w || vy >= game.view_h {continue}
 		tile, c := PERSON_TILES[p.sex], skin_color(p.melanin)
 		if p.asleep {c *= 0.5} // sleepers are dimmed
-		draw_tile_tinted(tile.col, tile.row, f32(vx * CELL), f32(vy * CELL), CELL, c.r, c.g, c.b)
-		if p.poison_hours > 0 {fill_rect(f32(vx * CELL + 2), f32(vy * CELL + 2), 8, 8, 0.3, 0.9, 0.2, 1)} // poisoned
+		draw_tile_tinted(tile.col, tile.row, f32(vx) * cell, f32(vy) * cell, cell, c.r, c.g, c.b)
+		if p.poison_hours > 0 {fill_rect(f32(vx) * cell + 2 * u, f32(vy) * cell + 2 * u, m, m, 0.3, 0.9, 0.2, 1)} // poisoned
 		slots := carry_slots(p)
-		step := min(f32(12), f32(CELL - 4) / f32(slots)) // a basket makes room for more markers, so squeeze them
-		size := min(f32(8), step - 1)
+		step := min(12 * u, (cell - 4 * u) / f32(slots)) // a basket makes room for more markers, so squeeze them
+		size := min(m, step - u)
 		for h in 0 ..< slots { // a marker for each place that holds something
-			hx, hy := f32(vx * CELL + 2) + f32(h) * step, f32(vy * CELL + CELL - 10)
+			hx, hy := f32(vx) * cell + 2 * u + f32(h) * step, f32(vy) * cell + cell - 10 * u
 			#partial switch p.hands[h] {
 			case .Food: fill_rect(hx, hy, size, size, 0.9, 0.15, 0.25, 1)
 			case .Stone: fill_rect(hx, hy, size, size, 0.7, 0.7, 0.75, 1)
@@ -206,7 +228,6 @@ draw :: proc() {
 			case .Twine: fill_rect(hx, hy, size, size, 0.9, 0.75, 0.5, 1)
 			case .Sharp_Stone: fill_rect(hx, hy, size, size, 0.85, 0.95, 1, 1)
 			case .Short_Stick: fill_rect(hx, hy, size, size, 0.8, 0.6, 0.35, 1)
-			case .Knife: fill_rect(hx, hy, size, size, 0.95, 0.95, 0.4, 1)
 			case .Spear: fill_rect(hx, hy, size, size, 0.95, 0.6, 0.2, 1)
 			case .Reed: fill_rect(hx, hy, size, size, 0.5, 0.85, 0.4, 1)
 			case .Fish: fill_rect(hx, hy, size, size, 0.4, 0.7, 0.95, 1)
@@ -218,57 +239,83 @@ draw :: proc() {
 			case .Cooking_Stick: // a stick, with whatever is on it as a dot beside it
 				fill_rect(hx, hy, size, size, 0.75, 0.55, 0.3, 1)
 				#partial switch p.loaded[h] {
-				case .Snake_Meat, .Fish_Filet: fill_rect(hx + size / 2, hy, size / 2, size / 2, 0.95, 0.5, 0.55, 1)
-				case .Cooked_Snake_Meat, .Cooked_Fish_Filet: fill_rect(hx + size / 2, hy, size / 2, size / 2, 0.55, 0.3, 0.1, 1)
+				case .Snake_Meat, .Fish_Filet, .Rabbit_Meat: fill_rect(hx + size / 2, hy, size / 2, size / 2, 0.95, 0.5, 0.55, 1)
+				case .Cooked_Snake_Meat, .Cooked_Fish_Filet, .Cooked_Rabbit_Meat: fill_rect(hx + size / 2, hy, size / 2, size / 2, 0.55, 0.3, 0.1, 1)
 				}
-			case .Basket: fill_rect(hx, hy, size, size, 0.8, 0.6, 0.25, 1)
+			case .Basket: // the basket, with a dot for each thing inside
+				fill_rect(hx, hy, size, size, 0.8, 0.6, 0.25, 1)
+				for k in 0 ..< BASKET_SLOTS {
+					if p.packs[h][k] != .None {fill_rect(hx + f32(k) * size / 3, hy + size / 2, size / 3, size / 2, 0.9, 0.15, 0.25, 1)}
+				}
+			case .Rope: fill_rect(hx, hy, size, size, 0.8, 0.65, 0.4, 1)
+			case .Rabbit_Corpse: fill_rect(hx, hy, size, size, 0.55, 0.5, 0.45, 1)
+			case .Rabbit_Meat: fill_rect(hx, hy, size, size, 0.9, 0.45, 0.45, 1)
+			case .Fur: fill_rect(hx, hy, size, size, 0.75, 0.7, 0.6, 1)
+			case .Fur_Coat: fill_rect(hx, hy, size, size, 0.6, 0.45, 0.3, 1)
+			case .Dried_Berries: fill_rect(hx, hy, size, size, 0.45, 0.15, 0.2, 1)
+			case .Dried_Meat: fill_rect(hx, hy, size, size, 0.5, 0.25, 0.15, 1)
+			case .Drying_Rack: fill_rect(hx, hy, size, size, 0.55, 0.4, 0.2, 1)
 			}
 		}
 	}
 
 	tint := ambient_overlay(sun_sin(game.clock, game.cfg))
 	if tint[3] > 0 {
-		fill_rect(0, 0, CANVAS_W, CANVAS_H, tint.r, tint.g, tint.b, tint.a)
+		fill_rect(0, 0, MAP_PX, MAP_PX, tint.r, tint.g, tint.b, tint.a)
 	}
 
-	cx := f32((game.cursor_x - game.cam_x) * CELL)
-	cy := f32((game.cursor_y - game.cam_y) * CELL)
-	stroke_rect(cx, cy, CELL, CELL, 1, 1, 0.2, 3)
+	cx := f32(game.cursor_x - game.cam_x) * cell
+	cy := f32(game.cursor_y - game.cam_y) * cell
+	stroke_rect(cx, cy, cell, cell, 1, 1, 0.2, 3)
+	if fi := followed_index(&game); fi >= 0 { // the followed person wears a white box
+		fx, fy := f32(game.people[fi].x - game.cam_x) * cell, f32(game.people[fi].y - game.cam_y) * cell
+		stroke_rect(fx, fy, cell, cell, 1, 1, 1, 3)
+	}
 
 	draw_minimap()
 
+	qx, qy := game.cursor_x, game.cursor_y // the panel describes the cell under the cursor, or the person being followed
+	fi := followed_index(&game)
+	if fi >= 0 {qx, qy = game.people[fi].x, game.people[fi].y}
 	buf, buf2: [300]byte
 	gbuf: [200]byte
-	t := terrain_at(&game, game.cursor_x, game.cursor_y)
-	s := fmt.bprintf(buf[:], "(%d, %d)  %s", game.cursor_x, game.cursor_y, TERRAIN_NAMES[t])
-	if sticks, ok := sticks_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Tree  -  Sticks %.1f / %.0f", game.cursor_x, game.cursor_y, sticks, f32(STICKS_PER_TREE))
-	} else if fiber, ok := fiber_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Grass  -  Fiber %.1f / %.0f", game.cursor_x, game.cursor_y, fiber, f32(FIBER_PER_GRASS))
-	} else if fuel, ok := fuel_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Fire pit (%s)  -  Fuel %.1f / %.0f sticks", game.cursor_x, game.cursor_y, "lit" if fire_lit_at(&game, game.cursor_x, game.cursor_y) else "cold", fuel, f32(FIRE_PIT_FUEL))
-	} else if reeds, ok := reeds_at(&game, game.cursor_x, game.cursor_y); ok {
-		fish, _ := fish_at(&game, game.cursor_x, game.cursor_y)
-		s = fmt.bprintf(buf[:], "(%d, %d)  Pond  -  Reeds %.1f / %.0f  Fish %.1f / %.0f", game.cursor_x, game.cursor_y, reeds, f32(REEDS_PER_POND), fish, f32(FISH_PER_POND))
-	} else if left, ok := stone_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Stone field  -  Stone %.0f / %.0f", game.cursor_x, game.cursor_y, left, f32(STONE_FIELD_AMOUNT))
-	} else if b, ok := bush_at(&game, game.cursor_x, game.cursor_y); ok {
-		s = fmt.bprintf(buf[:], "(%d, %d)  %s  -  Food %.1f / %.1f", game.cursor_x, game.cursor_y, "Miracle bush" if b.miracle else "Bush", b.food, b.max_food)
+	t := terrain_at(&game, qx, qy)
+	s := fmt.bprintf(buf[:], "(%d, %d)  %s", qx, qy, TERRAIN_NAMES[t])
+	if sticks, ok := sticks_at(&game, qx, qy); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Tree  -  Sticks %.1f / %.0f", qx, qy, sticks, f32(STICKS_PER_TREE))
+	} else if fiber, ok := fiber_at(&game, qx, qy); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Grass  -  Fiber %.1f / %.0f", qx, qy, fiber, f32(FIBER_PER_GRASS))
+	} else if fuel, ok := fuel_at(&game, qx, qy); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Fire pit (%s)  -  Fuel %.1f / %.0f sticks", qx, qy, "lit" if fire_lit_at(&game, qx, qy) else "cold", fuel, f32(FIRE_PIT_FUEL))
+	} else if reeds, ok := reeds_at(&game, qx, qy); ok {
+		fish, _ := fish_at(&game, qx, qy)
+		s = fmt.bprintf(buf[:], "(%d, %d)  Pond  -  Reeds %.1f / %.0f  Fish %.1f / %.0f", qx, qy, reeds, f32(REEDS_PER_POND), fish, f32(FISH_PER_POND))
+	} else if left, ok := stone_at(&game, qx, qy); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Stone field  -  Stone %.0f / %.0f", qx, qy, left, f32(STONE_FIELD_AMOUNT))
+	} else if b, ok := bush_at(&game, qx, qy); ok {
+		s = fmt.bprintf(buf[:], "(%d, %d)  %s\nFood %.1f / %.1f  Health %.1f / %.0f", qx, qy, "Miracle bush" if b.miracle else "Bush", b.food, b.max_food, b.health, f32(BUSH_MAX_HEALTH))
 	}
-	if snake_at(&game, game.cursor_x, game.cursor_y) >= 0 {
-		s = fmt.bprintf(buf[:], "(%d, %d)  Poisonous snake  -  Dodge %.0f", game.cursor_x, game.cursor_y, game.snakes[snake_at(&game, game.cursor_x, game.cursor_y)].dodge)
+	if r := rabbit_at(&game, qx, qy); r >= 0 {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Rabbit  -  Dodge %.0f", qx, qy, game.rabbits[r].dodge)
 	}
-	if on_ground := describe_ground_items(&game, game.cursor_x, game.cursor_y, gbuf[:]); len(on_ground) > 0 {
+	if snake_at(&game, qx, qy) >= 0 {
+		s = fmt.bprintf(buf[:], "(%d, %d)  Poisonous snake  -  Dodge %.0f", qx, qy, game.snakes[snake_at(&game, qx, qy)].dodge)
+	}
+	if on_ground := describe_ground_items(&game, qx, qy, gbuf[:]); len(on_ground) > 0 {
 		s = fmt.bprintf(buf2[:], "%s\nOn the ground: %s", s, on_ground)
 	}
-	if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
+	if i := person_at(&game, qx, qy); i >= 0 {
 		p := game.people[i]
 		s = fmt.bprintf(
 			buf[:],
 			"(%d, %d)  Person (%s, melanin %.2f)%s\nHealth %.0f  Satiety %.0f\nStomach %.0f  Energy %.0f\nSleeps %.1fh  Carrying %d/%d\nForaging %.0f  Crafting %.0f  Ranged %.0f",
-			game.cursor_x, game.cursor_y, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
+			qx, qy, SEX_NAMES[p.sex], p.melanin, " - asleep" if p.asleep else "",
 			p.health, p.satiety, p.stomach, p.energy, p.sleep_hours, held_count(p), carry_slots(p), p.foraging, p.crafting, p.ranged,
 		)
+		s = fmt.tprintf("%s\nDoing: %s  Role: %s", s, ACTIVITY_NAMES[p.doing], ROLE_NAMES[p.role])
+		if p.chill > 0 || p.heat > 0 || p.hypothermia > 0 || p.heat_stress > 0 {
+			s = fmt.tprintf("%s\nChill %.0f  Heat %.0f  Hypothermia %.0f  Heat stress %.0f", s, p.chill, p.heat, p.hypothermia, p.heat_stress)
+		}
 		s = fmt.tprintf("%s\nAge %.0f of %.0f", s, p.age_years, p.lifespan_years)
 		s = fmt.tprintf("%s\nMood: %s (dopamine %.0f)%s", s, MOOD_NAMES[mood_of(p.dopamine)], p.dopamine, " - craving" if craving(p) else "")
 		if made := describe_craft_levels(p); len(made) > 0 {
@@ -287,17 +334,21 @@ draw :: proc() {
 			s = fmt.tprintf("%s\nNet: %d uses left", s, n)
 		}
 		s = fmt.tprintf("%s\nFishing %.0f (+%d)  Cooking %.0f (+%d)", s, p.fishing, p.fish_level, p.cooking, p.cook_level)
-		if n, ok := uses_left(p, .Knife); ok {
-			s = fmt.tprintf("%s\nKnife: %d uses left", s, n)
+		if n, ok := uses_left(p, .Sharp_Stone); ok {
+			s = fmt.tprintf("%s\nSharp stone: %d uses left", s, n)
 		}
-	} else if i := corpse_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
+		if p.belt {s = fmt.tprintf("%s\nWearing a belt", s)}
+		if p.coat {s = fmt.tprintf("%s\nWearing a fur coat", s)}
+		if n := packed_count(p, .Food) + packed_count(p, .Fish) + packed_count(p, .Fish_Filet) + packed_count(p, .Snake_Meat) + packed_count(p, .Rabbit_Meat); n > 0 {
+			s = fmt.tprintf("%s\n%d in the basket", s, n)
+		}
+	} else if i := corpse_at(&game, qx, qy); i >= 0 {
 		c := game.corpses[i]
 		kind := "Skeleton" if c.skeleton else "Corpse"
-		s = fmt.bprintf(buf[:], "(%d, %d)  %s (%s, melanin %.2f)  -  %.0f%% rotted", game.cursor_x, game.cursor_y, kind, SEX_NAMES[c.sex], c.melanin, 100 * corpse_rot_fraction(&game, c))
+		s = fmt.bprintf(buf[:], "(%d, %d)  %s (%s, melanin %.2f)  -  %.0f%% rotted", qx, qy, kind, SEX_NAMES[c.sex], c.melanin, 100 * corpse_rot_fraction(&game, c))
 	}
 	set_info(raw_data(s), i32(len(s)))
-	// Keep the panels out of the cursor's way: info on the opposite side, clock on the opposite edge.
-	set_layout(game.cursor_x - game.cam_x < VIEW_W / 2, game.cursor_y - game.cam_y < VIEW_H / 2)
+	set_view(i32(game.zoom), fi >= 0)
 
 	d := date_of(game.clock, game.cfg)
 	speed := "paused"
@@ -305,18 +356,12 @@ draw :: proc() {
 	if !game.clock.paused {
 		speed = fmt.bprintf(sbuf[:], "%gx", SPEEDS[game.clock.speed_index])
 	}
-	cbuf: [160]byte
+	cbuf: [200]byte
 	cs := fmt.bprintf(
 		cbuf[:],
-		"Year %d, Month %d, Day %d  %02d:%02d  %s  %.1f\u00b0C  [%s]",
+		"Year %d, Month %d, Day %d\n%02d:%02d  %s\n%.1f\u00b0C  [%s]\nFaith %.0f",
 		d.year, d.month, d.day, d.hour, d.minute, SEASON_NAMES[d.season],
-		temperature_c(game.clock, game.cfg), speed,
-	)
-	pbuf: [120]byte
-	cs = fmt.bprintf(
-		pbuf[:],
-		"%s\nFaith %.0f",
-		cs, game.faith,
+		temperature_c(game.clock, game.cfg), speed, game.faith,
 	)
 	set_clock(raw_data(cs), i32(len(cs)))
 
@@ -344,48 +389,37 @@ draw :: proc() {
 }
 
 draw_minimap :: proc() {
-	w := f32(game.width * MINI_CELL)
-	h := f32(game.height * MINI_CELL)
-	// Stay out of the cursor's way: the minimap sits on the opposite side of the screen.
-	cursor_on_right := game.cursor_x - game.cam_x >= VIEW_W / 2
-	ox := f32(MINI_MARGIN)
-	if !cursor_on_right {
-		ox = f32(CANVAS_W) - w - MINI_MARGIN
-	}
-	oy := f32(MINI_MARGIN)
-	fill_rect(ox - 2, oy - 2, w + 4, h + 4, 0, 0, 0, 0.8)
+	use_canvas(1)
+	defer use_canvas(0)
+	clear_canvas(0.02, 0.04, 0.02)
+	mc := f32(MINI_PX) / f32(max(game.width, game.height)) // minimap pixels per world cell
 	for y in 0 ..< game.height {
 		for x in 0 ..< game.width {
 			c := MINI_COLORS[terrain_at(&game, x, y)]
 			if b, ok := bush_at(&game, x, y); ok && b.miracle {c = MIRACLE_COLOR}
-			fill_rect(ox + f32(x * MINI_CELL), oy + f32(y * MINI_CELL), MINI_CELL, MINI_CELL, c.r, c.g, c.b, 1)
+			fill_rect(f32(x) * mc, f32(y) * mc, mc + 0.5, mc + 0.5, c.r, c.g, c.b, 1)
 		}
 	}
+	dot := max(mc, 3) // people and creatures stay visible however big the world is
 	for c in game.corpses {
 		shade: f32 = 0.7 if c.skeleton else 0.4
-		fill_rect(ox + f32(c.x * MINI_CELL), oy + f32(c.y * MINI_CELL), MINI_CELL, MINI_CELL, shade, shade, shade, 1)
+		fill_rect(f32(c.x) * mc, f32(c.y) * mc, dot, dot, shade, shade, shade, 1)
 	}
 	for s in game.snakes {
-		fill_rect(ox + f32(s.x * MINI_CELL), oy + f32(s.y * MINI_CELL), MINI_CELL, MINI_CELL, 0.3, 0.9, 0.2, 1)
+		fill_rect(f32(s.x) * mc, f32(s.y) * mc, dot, dot, 0.3, 0.9, 0.2, 1)
+	}
+	for r in game.rabbits {
+		fill_rect(f32(r.x) * mc, f32(r.y) * mc, dot, dot, 0.8, 0.75, 0.7, 1)
 	}
 	for p in game.people {
 		c := skin_color(p.melanin)
-		fill_rect(ox + f32(p.x * MINI_CELL), oy + f32(p.y * MINI_CELL), MINI_CELL, MINI_CELL, c.r, c.g, c.b, 1)
+		fill_rect(f32(p.x) * mc, f32(p.y) * mc, dot, dot, c.r, c.g, c.b, 1)
 	}
-	stroke_rect(
-		ox + f32(game.cam_x * MINI_CELL),
-		oy + f32(game.cam_y * MINI_CELL),
-		VIEW_W * MINI_CELL,
-		VIEW_H * MINI_CELL,
-		1, 1, 1, 1,
-	)
-	stroke_rect(
-		ox + f32(game.cursor_x * MINI_CELL),
-		oy + f32(game.cursor_y * MINI_CELL),
-		MINI_CELL,
-		MINI_CELL,
-		1, 1, 0.2, 1,
-	)
+	if fi := followed_index(&game); fi >= 0 {
+		stroke_rect(f32(game.people[fi].x) * mc - 2, f32(game.people[fi].y) * mc - 2, dot + 4, dot + 4, 1, 1, 1, 2)
+	}
+	stroke_rect(f32(game.cam_x) * mc, f32(game.cam_y) * mc, f32(game.view_w) * mc, f32(game.view_h) * mc, 1, 1, 1, 2)
+	stroke_rect(f32(game.cursor_x) * mc, f32(game.cursor_y) * mc, mc, mc, 1, 1, 0.2, 1)
 }
 
 // Input arrives from the page as plain exported calls.
@@ -449,7 +483,52 @@ on_disarm :: proc "c" () {
 on_click :: proc "c" (view_x, view_y: i32) {
 	context = ctx
 	hover_cell(&game, int(view_x), int(view_y))
-	if a, ok := game.armed.?; ok {use_power(&game, a)}
+	if a, ok := game.armed.?; ok {
+		use_power(&game, a)
+	} else if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 { // clicking a person follows them
+		follow_person(&game, game.people[i].id)
+	}
+}
+
+// A click on the minimap, as thousandths across and down it: centre the view there.
+@(export)
+on_minimap :: proc "c" (permille_x, permille_y: i32) {
+	context = ctx
+	x := clamp(int(permille_x) * max(game.width, game.height) / 1000, 0, game.width - 1)
+	y := clamp(int(permille_y) * max(game.width, game.height) / 1000, 0, game.height - 1)
+	game.following = 0
+	center_camera(&game, x, y)
+	game.cursor_x = clamp(game.cursor_x, game.cam_x, game.cam_x + game.view_w - 1)
+	game.cursor_y = clamp(game.cursor_y, game.cam_y, game.cam_y + game.view_h - 1)
+}
+
+// Positive zooms out, negative zooms in.
+@(export)
+on_zoom :: proc "c" (delta: i32) {
+	context = ctx
+	zoom_view(&game, int(delta))
+}
+
+// Follow the person under the cursor, or stop following; with nobody there, follow the first person.
+@(export)
+on_follow :: proc "c" () {
+	context = ctx
+	if game.following != 0 {
+		game.following = 0
+	} else if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 {
+		follow_person(&game, game.people[i].id)
+	} else if len(game.people) > 0 {
+		follow_person(&game, game.people[0].id)
+	}
+}
+
+// Move the follow on to the next person in the list.
+@(export)
+on_follow_next :: proc "c" () {
+	context = ctx
+	if len(game.people) == 0 {return}
+	i := followed_index(&game)
+	follow_person(&game, game.people[(i + 1) % len(game.people)].id)
 }
 
 @(export)
@@ -468,6 +547,7 @@ configure :: proc "c" (day_real_seconds: f64, days_per_month, months_per_year: i
 	if months_per_year > 0 {c.months_per_year = int(months_per_year)}
 	if !math.is_nan(latitude) {c.latitude = latitude}
 	game.cfg = normalize_config(c)
+	set_start_time(&game) // the year length may have changed
 }
 
 // Replace the world with a fresh one. A world of 0 by 0 means "screen sized".
@@ -476,7 +556,7 @@ new_world :: proc "c" (width, height: i32) {
 	context = ctx
 	w, h := int(width), int(height)
 	if w <= 0 || h <= 0 {
-		w, h = VIEW_W, VIEW_H
+		w, h = DEFAULT_ZOOM, DEFAULT_ZOOM
 	}
 	game_destroy(&game)
 	game = {}

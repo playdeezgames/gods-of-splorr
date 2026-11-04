@@ -178,6 +178,7 @@ gather_setup :: proc(g: ^Game, food: f32) {
 	g.people[0].x, g.people[0].y = 4, 5
 	g.people[0].hands = {}
 	g.people[0].foraging = MAX_SKILL
+	g.people[0].role = .Generalist
 }
 
 @(test)
@@ -286,12 +287,14 @@ hungry_people_eat_on_their_own_before_gathering :: proc(t: ^testing.T) {
 
 @(test)
 well_fed_people_keep_their_food :: proc(t: ^testing.T) {
+	rand.reset(1) // a stray 2% chance to set something down would otherwise make this flaky
 	g: Game
 	game_init(&g, WORLD_SIZE)
 	defer game_destroy(&g)
 	gather_setup(&g, 10)
 	p := &g.people[0]
 	p.hands[0] = .Food
+	p.foraging = MAX_SKILL // never fumbles
 	p.stomach = 60
 	p.next_move_hours = g.clock.hours
 	g.people[1].next_move_hours = g.clock.hours + 1000
@@ -305,8 +308,9 @@ well_fed_people_keep_their_food :: proc(t: ^testing.T) {
 a_forager_can_stay_alive_indefinitely :: proc(t: ^testing.T) {
 	rand.reset(21)
 	g: Game
-	game_init_rect(&g, VIEW_W, VIEW_H)
+	game_init_rect(&g, DEFAULT_ZOOM, DEFAULT_ZOOM)
 	defer game_destroy(&g)
+	g.cfg.latitude = 15 // a mild climate: this test is about food, not cold
 	// plenty of bushes so the walker keeps finding food
 	for i in 0 ..< len(g.cells) {
 		g.cells[i] = .Grass if i % 3 != 0 else .Bush

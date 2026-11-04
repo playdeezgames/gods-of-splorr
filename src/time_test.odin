@@ -95,3 +95,31 @@ sun_follows_day_and_season :: proc(t: ^testing.T) {
 	testing.expect(t, ambient_overlay(1)[3] == 0, "no tint at noon")
 	testing.expect(t, ambient_overlay(-1)[3] > 0.6, "dark at night")
 }
+
+@(test)
+the_season_cools_from_midsummer_to_the_spring_thaw :: proc(t: ^testing.T) {
+	cfg := normalize_config(DEFAULT_CALENDAR) // latitude 40, north
+	at :: proc(cfg: Calendar_Config, fraction: f64) -> Clock {
+		return Clock{hours = hours_per_year(cfg) * fraction}
+	}
+	testing.expect(t, !cooling_season(at(cfg, 0.1), cfg), "spring is warming")
+	testing.expect(t, !cooling_season(at(cfg, 0.25), cfg), "early summer is still warming")
+	testing.expect(t, cooling_season(at(cfg, 0.4), cfg), "late summer is cooling")
+	testing.expect(t, cooling_season(at(cfg, 0.7), cfg), "autumn is cooling")
+	testing.expect(t, !cooling_season(at(cfg, 0.9), cfg), "the thaw has begun")
+	south := cfg
+	south.latitude = -40
+	testing.expect(t, cooling_season(at(south, 0.1), south), "the south is out of step by half a year")
+	equator := cfg
+	equator.latitude = 0
+	testing.expect(t, !cooling_season(at(equator, 0.5), equator), "no seasons at the equator")
+}
+
+@(test)
+the_daily_mean_ignores_the_time_of_day :: proc(t: ^testing.T) {
+	cfg := normalize_config(DEFAULT_CALENDAR)
+	noon := Clock{hours = 100 * 24 + 15}
+	night := Clock{hours = 100 * 24 + 3}
+	testing.expect(t, temperature_c(noon, cfg) - temperature_c(night, cfg) > 5, "day and night differ")
+	testing.expect(t, abs(mean_temperature_c(noon, cfg) - mean_temperature_c(night, cfg)) < 0.1, "the mean barely moves in half a day")
+}

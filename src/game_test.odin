@@ -45,8 +45,8 @@ cursor_clamps_and_camera_follows :: proc(t: ^testing.T) {
 	testing.expect_value(t, g.cam_x, 0)
 	move_cursor(&g, 100, 100)
 	testing.expect_value(t, g.cursor_x, WORLD_SIZE - 1)
-	testing.expect_value(t, g.cam_x, WORLD_SIZE - VIEW_W)
-	testing.expect_value(t, g.cam_y, WORLD_SIZE - VIEW_H)
+	testing.expect_value(t, g.cam_x, WORLD_SIZE - DEFAULT_ZOOM)
+	testing.expect_value(t, g.cam_y, WORLD_SIZE - DEFAULT_ZOOM)
 }
 
 @(test)
@@ -56,25 +56,25 @@ hover_and_pan :: proc(t: ^testing.T) {
 	defer game_destroy(&g)
 	pan_camera(&g, 100, 100)
 	hover_cell(&g, 0, 0)
-	testing.expect_value(t, g.cursor_x, WORLD_SIZE - VIEW_W)
-	testing.expect_value(t, g.cursor_y, WORLD_SIZE - VIEW_H)
+	testing.expect_value(t, g.cursor_x, WORLD_SIZE - DEFAULT_ZOOM)
+	testing.expect_value(t, g.cursor_y, WORLD_SIZE - DEFAULT_ZOOM)
 	pan_camera(&g, -100, -100)
-	testing.expect(t, g.cursor_x < VIEW_W && g.cursor_y < VIEW_H, "cursor stays on screen")
+	testing.expect(t, g.cursor_x < DEFAULT_ZOOM && g.cursor_y < DEFAULT_ZOOM, "cursor stays on screen")
 }
 
 @(test)
 screen_sized_world_works :: proc(t: ^testing.T) {
 	rand.reset(4)
 	g: Game
-	game_init_rect(&g, VIEW_W, VIEW_H)
+	game_init_rect(&g, DEFAULT_ZOOM, DEFAULT_ZOOM)
 	defer game_destroy(&g)
-	testing.expect_value(t, len(g.cells), VIEW_W * VIEW_H)
-	testing.expect_value(t, len(g.bushes), VIEW_W * VIEW_H)
+	testing.expect_value(t, len(g.cells), DEFAULT_ZOOM * DEFAULT_ZOOM)
+	testing.expect_value(t, len(g.bushes), DEFAULT_ZOOM * DEFAULT_ZOOM)
 	testing.expect_value(t, len(g.people), START_PEOPLE)
-	testing.expect(t, in_bounds(&g, VIEW_W - 1, VIEW_H - 1) && !in_bounds(&g, VIEW_W, 0) && !in_bounds(&g, 0, VIEW_H), "bounds")
+	testing.expect(t, in_bounds(&g, DEFAULT_ZOOM - 1, DEFAULT_ZOOM - 1) && !in_bounds(&g, DEFAULT_ZOOM, 0) && !in_bounds(&g, 0, DEFAULT_ZOOM), "bounds")
 	move_cursor(&g, 100, 100)
-	testing.expect_value(t, g.cursor_x, VIEW_W - 1)
-	testing.expect_value(t, g.cursor_y, VIEW_H - 1)
+	testing.expect_value(t, g.cursor_x, DEFAULT_ZOOM - 1)
+	testing.expect_value(t, g.cursor_y, DEFAULT_ZOOM - 1)
 	testing.expect_value(t, g.cam_x, 0)
 	testing.expect_value(t, g.cam_y, 0)
 	// a non-square world indexes by its own width
@@ -119,5 +119,5 @@ starvation_of_everyone_ends_the_game_and_restart_begins_again :: proc(t: ^testin
 	testing.expect_value(t, len(g.people), START_PEOPLE)
 	testing.expect_value(t, len(g.corpses), 0)
 	testing.expect_value(t, g.cfg.days_per_month, 7)
-	testing.expect_value(t, g.clock.hours, clock_init().hours)
+	testing.expect_value(t, g.clock.hours, hours_per_year(g.cfg) * START_YEAR_FRACTION + START_HOUR)
 }

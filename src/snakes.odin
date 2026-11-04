@@ -133,10 +133,55 @@ MAX_HIT_CHANCE :: 0.95
 hit_chance :: proc(ranged, dodge: f32) -> f32 {
 	return clamp(0.5 + HIT_SPREAD * (ranged - dodge) / MAX_SKILL, MIN_HIT_CHANCE, MAX_HIT_CHANCE)
 }
-SKIN_RANGE :: 6 // a person with a knife walks to a snake corpse this close
+SKIN_RANGE :: 6 // a person with a sharp stone walks to a snake corpse this close
 
-// Take a step toward (tx, ty), along the longer gap first, trying the other axis if blocked.
+MAX_ROUTE_CELLS :: 128 * 128 // the largest planned world
+
+// Take a step toward (tx, ty) along the shortest route round ponds, trees and fire pits. The goal is the
+// cell itself, or, if people cannot stand on it, any cell beside it. Only the first step of the route
+// needs to be free of people and creatures, so a person standing in the way is walked round. With no route
+// at all, step greedily along the longer gap.
 step_toward :: proc(g: ^Game, p: ^Person, tx, ty: int) -> bool {
+	if p.x == tx && p.y == ty {return false}
+	target_open := in_bounds(g, tx, ty) && walkable(terrain_at(g, tx, ty))
+	is_goal :: proc(x, y, tx, ty: int, open: bool) -> bool {
+		return (x == tx && y == ty) || (!open && abs(x - tx) + abs(y - ty) == 1)
+	}
+	if is_goal(p.x, p.y, tx, ty, target_open) {return false}
+	@(static) first_buf: [MAX_ROUTE_CELLS]i8
+	@(static) queue_buf: [MAX_ROUTE_CELLS]int
+	n := min(g.width * g.height, MAX_ROUTE_CELLS)
+	first := first_buf[:n] // 0 unseen, else 1 + the direction of the first step
+	queue := queue_buf[:n]
+	for &f in first {f = 0}
+	head, tail := 0, 0
+	for d, k in DIRS {
+		x, y := p.x + d.x, p.y + d.y
+		if !can_enter(g, x, y) {continue}
+		first[y * g.width + x] = i8(k + 1)
+		queue[tail] = y * g.width + x
+		tail += 1
+	}
+	for head < tail {
+		c := queue[head]
+		head += 1
+		cx, cy := c % g.width, c / g.width
+		if is_goal(cx, cy, tx, ty, target_open) {
+			d := DIRS[first[c] - 1]
+			p.x += d.x
+			p.y += d.y
+			return true
+		}
+		for d in DIRS {
+			x, y := cx + d.x, cy + d.y
+			if !in_bounds(g, x, y) || !walkable(terrain_at(g, x, y)) {continue}
+			i := y * g.width + x
+			if first[i] != 0 || (x == p.x && y == p.y) {continue}
+			first[i] = first[c]
+			queue[tail] = i
+			tail += 1
+		}
+	}
 	ex, ey := tx - p.x, ty - p.y
 	dx, dy := 0, 0
 	if abs(ex) >= abs(ey) {dx = sign_of(ex)} else {dy = sign_of(ey)}
@@ -173,10 +218,10 @@ kill_snake :: proc(g: ^Game, i: int) {
 	unordered_remove(&g.snakes, i)
 }
 
-// A person holding a knife walks to a snake corpse and skins it: the corpse becomes snake meat
+// A person holding a sharp stone walks to a snake corpse and skins it: the corpse becomes snake meat
 // and, if the cutting goes well, snake skin, both left on the ground.
 skin_snake :: proc(g: ^Game, p: ^Person) -> bool {
-	if !holds(p^, .Knife) {return false}
+	if !holds(p^, .Sharp_Stone) {return false}
 	nearest, nearest_dist := -1, SKIN_RANGE + 1
 	for it, i in g.ground_items {
 		if it.item != .Snake_Corpse {continue}
@@ -190,6 +235,6 @@ skin_snake :: proc(g: ^Game, p: ^Person) -> bool {
 	if skill_succeeds(p.crafting) { // a clumsy cut ruins the skin
 		append(&g.ground_items, Ground_Item{x = p.x, y = p.y, item = .Snake_Skin, dropped_hours = g.clock.hours})
 	}
-	wear_tool(p, .Knife)
+	wear_tool(p, .Sharp_Stone)
 	return true
 }

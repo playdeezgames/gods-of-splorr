@@ -5,60 +5,102 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gods of SPLORR!!</title>
 <style>
+  :root { --w: min(100vw, calc((100vh - 30px) * 16 / 9)); --line: #4a6a4a; --gold: #f0d890; }
   html, body { margin: 0; height: 100%; background: #050a05; color: #cfe8cf; font-family: monospace; }
   body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-  #stage { position: relative; width: min(100vw, calc((100vh - 36px) * 4 / 3)); font-size: min(16px, 1.7vw); }
-  canvas { display: block; width: 100%; image-rendering: pixelated; touch-action: none; cursor: crosshair; }
-  #clock, #info { position: absolute; background: rgba(5, 10, 5, .78); padding: .3em .8em; border-radius: 4px; pointer-events: none; white-space: pre-wrap; line-height: 1.3; }
-  #clock { left: 50%; transform: translateX(-50%); top: .6em; color: #f0d890; white-space: pre; }
-  #stage.clock-bottom #clock { top: auto; bottom: .6em; }
-  #info { bottom: .6em; left: .6em; max-width: 42%; text-align: left; }
-  #stage.info-right #info { left: auto; right: .6em; }
-  #stage.clock-bottom #info { bottom: 3.2em; }
+  /* A 16:9 stage: a square map in the middle with a side panel on each side. */
+  #stage { position: relative; width: var(--w); aspect-ratio: 16 / 9; font-size: calc(var(--w) / 100); display: grid; grid-template-columns: 21.875fr 56.25fr 21.875fr; background: #0a140a; }
+  .side { display: flex; flex-direction: column; gap: .6em; padding: .6em; min-height: 0; box-sizing: border-box; overflow: hidden; }
+  .panel { background: rgba(5, 10, 5, .78); border: 1px solid var(--line); border-radius: 4px; padding: .4em .8em; white-space: pre-wrap; line-height: 1.35; }
+  #center { position: relative; }
+  canvas { display: block; width: 100%; image-rendering: pixelated; touch-action: none; }
+  #c { cursor: crosshair; }
+  #mini { cursor: pointer; border: 1px solid var(--line); border-radius: 4px; background: #050a05; }
+  #clock { color: var(--gold); white-space: pre; }
+  #info { flex: 1; overflow: auto; min-height: 0; }
   #info:empty { display: none; }
-  #help { font-size: 12px; opacity: .6; }
-  #powers { position: absolute; left: .6em; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: .4em; }
-  #powers button { font: inherit; color: #cfe8cf; background: rgba(5, 10, 5, .78); border: 1px solid #4a6a4a; border-radius: 4px; padding: .3em .8em; cursor: pointer; text-align: left; }
-  #powers button.armed { background: #2a4a1a; border-color: #f0d890; color: #f0d890; }
-  #powers button:disabled { opacity: .4; cursor: default; }
-  #over { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(40, 0, 0, .8); color: #f0b0b0; text-align: center; line-height: 1.6; white-space: pre-wrap; font-size: 1.3em; cursor: pointer; }
+  button { font: inherit; color: #cfe8cf; background: rgba(5, 10, 5, .78); border: 1px solid var(--line); border-radius: 4px; padding: .3em .8em; cursor: pointer; text-align: left; }
+  button:hover:not(:disabled) { border-color: var(--gold); }
+  button.on, #powers button.armed { background: #2a4a1a; border-color: var(--gold); color: var(--gold); }
+  button:disabled { opacity: .4; cursor: default; }
+  .row { display: flex; gap: .4em; flex-wrap: wrap; }
+  .row button { flex: 1; text-align: center; white-space: nowrap; }
+  #powers { display: flex; flex-direction: column; gap: .4em; }
+  #stage.powers-hidden #powers { display: none; }
+  #over { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(40, 0, 0, .8); color: #f0b0b0; text-align: center; line-height: 1.6; white-space: pre-wrap; font-size: 1.6em; cursor: pointer; }
   #stage.game-over #over { display: flex; }
-  #credits { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5, 10, 5, .92); text-align: center; line-height: 1.6; cursor: pointer; }
-  #stage.show-credits #credits { display: flex; }
-  #credits h2 { margin: 0 0 .6em; color: #f0d890; }
-  #credits a { color: #aaa; }
-  #credits small { opacity: .6; }
+  #menu { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5, 10, 5, .94); line-height: 1.6; overflow: auto; }
+  #stage.show-menu #menu { display: flex; }
+  #menu > div { max-width: 70%; text-align: center; }
+  #menu h2 { margin: 0 0 .4em; color: var(--gold); }
+  #menu h3 { margin: 1em 0 .2em; color: var(--gold); font-size: 1em; }
+  #menu .keys { text-align: left; display: inline-block; font-size: .9em; }
+  #menu a { color: #aaa; }
+  #menu small { opacity: .6; }
   footer { font-size: 12px; text-align: center; max-width: 90vw; opacity: .7; }
   footer a { color: #aaa; }
 </style>
 </head>
 <body>
 <div id="stage">
-<canvas id="c" width="960" height="720"></canvas>
-<div id="clock"></div>
-<div id="info"></div>
-<div id="powers"></div>
-<div id="over"></div>
-<div id="credits"><div>
-  <h2>Gods of SPLORR!!</h2>
-  <div>Code and design: the developer, with Claude, an AI agent</div>
-  <div>Tiles: <a href="https://vurmux.itch.io/urizen-onebit-tileset" target="_blank" rel="noopener">Urizen 1-bit tileset</a> v2.0 by vurmux (CC0)</div>
-  <div>Built with Odin, running as WebAssembly</div>
-  <br><small>C or Esc or click to close</small>
-</div></div>
+  <div class="side" id="left">
+    <div id="clock" class="panel"></div>
+    <button id="powers-toggle" title="Show or hide the miracles (P)">Miracles [P]</button>
+    <div id="powers"></div>
+  </div>
+  <div id="center">
+    <canvas id="c" width="720" height="720"></canvas>
+    <div id="over"></div>
+  </div>
+  <div class="side" id="right">
+    <canvas id="mini" width="256" height="256" title="Click to look there"></canvas>
+    <div class="row">
+      <button id="zoom-in" title="Zoom in (Z or wheel up)">Zoom +</button>
+      <button id="zoom-out" title="Zoom out (X or wheel down)">Zoom -</button>
+    </div>
+    <div class="row">
+      <button id="follow" title="Follow the person under the cursor (F)">Follow [F]</button>
+      <button id="follow-next" title="Follow the next person (N)">Next [N]</button>
+    </div>
+    <button id="menu-btn" title="Controls and credits (M)">Menu [M]</button>
+    <div id="info" class="panel"></div>
+  </div>
+  <div id="menu"><div>
+    <h2>Gods of SPLORR!!</h2>
+    <h3>Controls</h3>
+    <div class="keys">
+      Arrows/WASD: move the cursor (Shift: 5 cells)<br>
+      Mouse: hover to inspect, drag to pan, wheel to zoom<br>
+      Click a person: follow them (F or the button to toggle)<br>
+      Click the minimap: look there<br>
+      Z / X: zoom in / out &middot; N: follow the next person<br>
+      Space: pause &middot; + / -: game speed<br>
+      1-5 or the buttons: miracles (click a button, then the map)<br>
+      P: show or hide the miracles &middot; R: begin again after a loss<br>
+      M or H or C: this menu &middot; Esc: close it<br>
+      Gamepad: d-pad / stick, bumpers speed, Start pause, X/Y/B miracles
+    </div>
+    <h3>Credits</h3>
+    <div>Code and design: the developer, with Claude, an AI agent</div>
+    <div>Tiles: <a href="https://vurmux.itch.io/urizen-onebit-tileset" target="_blank" rel="noopener">Urizen 1-bit tileset</a> v2.0 by vurmux (CC0)</div>
+    <div>Built with Odin, running as WebAssembly</div>
+    <br><small>Click anywhere or press Esc to close</small>
+  </div></div>
 </div>
 <footer>
-  Tiles: Urizen 1-bit tileset by vurmux (CC0). Made by Claude, an AI agent, working with the developer.
-  <a href="https://thegrumpygamedev.itch.io/">itch.io</a> · <a href="https://playdeezgames.github.io/oeuvre-of-splorr/">more games</a>
+  <a href="https://thegrumpygamedev.itch.io/">itch.io</a> &middot; <a href="https://playdeezgames.github.io/oeuvre-of-splorr/">more games</a>
 </footer>
-<div id="help">Arrows/WASD: move cursor · Mouse: hover, wheel or drag to scroll · Space: pause · +/-: speed · 1-5 or buttons: powers (click a button, then the map) · C: credits · Gamepad: d-pad / stick, bumpers speed, Start pause, X/Y/B powers</div>
 <script src="odin.js"></script>
 <script>
-const COLS = 20, ROWS = 15, TILE = 12, GAP = 13;
+const TILE = 12, GAP = 13;
 const canvas = document.getElementById("c");
-const g = canvas.getContext("2d");
-g.imageSmoothingEnabled = false;
+const mini = document.getElementById("mini");
+const mapG = canvas.getContext("2d"), miniG = mini.getContext("2d");
+mapG.imageSmoothingEnabled = false; miniG.imageSmoothingEnabled = false;
+let g = mapG; // the canvas the drawing calls go to; the game switches with use_canvas
+let ZOOM = 15; // cells across the map canvas, reported by the game each frame
 const infoEl = document.getElementById("info");
+const followBtn = document.getElementById("follow");
 const clockEl = document.getElementById("clock");
 const stageEl = document.getElementById("stage");
 const powersEl = document.getElementById("powers");
@@ -102,7 +144,8 @@ function tinted(col, row, r, gr, b) {
 }
 const rgb = (r, gr, b, a = 1) => `rgba(${r*255|0},${gr*255|0},${b*255|0},${a})`;
 const imports = { env: {
-  clear_canvas: (r, gr, b) => { g.fillStyle = rgb(r, gr, b); g.fillRect(0, 0, canvas.width, canvas.height); },
+  clear_canvas: (r, gr, b) => { g.fillStyle = rgb(r, gr, b); g.fillRect(0, 0, g.canvas.width, g.canvas.height); },
+  use_canvas: (which) => { g = which ? miniG : mapG; },
   fill_rect: (x, y, w, h, r, gr, b, a) => { g.fillStyle = rgb(r, gr, b, a); g.fillRect(x, y, w, h); },
   stroke_rect: (x, y, w, h, r, gr, b, line) => {
     g.strokeStyle = rgb(r, gr, b); g.lineWidth = line;
@@ -119,9 +162,11 @@ const imports = { env: {
     const s = decoder.decode(new Uint8Array(memory.memory.buffer, ptr, n));
     if (s !== clockEl.textContent) clockEl.textContent = s;
   },
-  set_layout: (infoRight, clockBottom) => {
-    stageEl.classList.toggle("info-right", !!infoRight);
-    stageEl.classList.toggle("clock-bottom", !!clockBottom);
+  set_view: (zoom, following) => {
+    ZOOM = zoom;
+    followBtn.classList.toggle("on", !!following);
+    const label = following ? "Stop following [F]" : "Follow [F]";
+    if (followBtn.textContent !== label) followBtn.textContent = label;
   },
   set_powers: (ptr, n, armed, affordable) => {
     const lines = decoder.decode(new Uint8Array(memory.memory.buffer, ptr, n)).split("\n");
@@ -171,14 +216,28 @@ const KEYS = {
   ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
 };
 overEl.addEventListener("click", () => game().on_restart());
-const creditsEl = document.getElementById("credits");
-const toggleCredits = (on) => stageEl.classList.toggle("show-credits", on);
-creditsEl.addEventListener("click", (e) => { if (e.target.tagName !== "A") toggleCredits(false); });
+const menuEl = document.getElementById("menu");
+const toggleMenu = (on) => stageEl.classList.toggle("show-menu", on);
+menuEl.addEventListener("click", (e) => { if (e.target.tagName !== "A") toggleMenu(false); });
+document.getElementById("menu-btn").addEventListener("click", () => toggleMenu(true));
+const togglePowers = () => stageEl.classList.toggle("powers-hidden");
+document.getElementById("powers-toggle").addEventListener("click", togglePowers);
+document.getElementById("zoom-in").addEventListener("click", () => game().on_zoom(-1));
+document.getElementById("zoom-out").addEventListener("click", () => game().on_zoom(1));
+followBtn.addEventListener("click", () => game().on_follow());
+document.getElementById("follow-next").addEventListener("click", () => game().on_follow_next());
 window.addEventListener("keydown", (e) => {
-  if (e.key === "c" || e.key === "C") { toggleCredits(!stageEl.classList.contains("show-credits")); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "m" || k === "h" || k === "c") { toggleMenu(!stageEl.classList.contains("show-menu")); return; }
+  if (k === "p") { togglePowers(); return; }
+  if (k === "z") { game().on_zoom(-1); return; }
+  if (k === "x") { game().on_zoom(1); return; }
+  if (k === "f") { game().on_follow(); return; }
+  if (k === "n") { game().on_follow_next(); return; }
   if (e.key >= "1" && e.key <= "5") { game().on_power(Number(e.key) - 1); return; }
-  if (e.key === "r" || e.key === "R") { game().on_restart(); return; }
-  if (e.key === "Escape") { toggleCredits(false); game().on_disarm(); return; }
+  if (k === "r") { game().on_restart(); return; }
+  if (e.key === "Escape") { toggleMenu(false); game().on_disarm(); return; }
   if (e.key === " ") { e.preventDefault(); game().on_pause(); return; }
   if (e.key === "+" || e.key === "=" || e.key === "]") { game().on_speed(1); return; }
   if (e.key === "-" || e.key === "_" || e.key === "[") { game().on_speed(-1); return; }
@@ -188,12 +247,12 @@ window.addEventListener("keydown", (e) => {
   game().on_move(m[0] * (e.shiftKey ? 5 : 1), m[1] * (e.shiftKey ? 5 : 1));
 });
 
-// Mouse: hover selects, wheel scrolls, drag pans.
+// Mouse: hover selects, drag pans, wheel zooms, a click acts (casts the armed power, or follows a person).
 const cellOf = (e) => {
   const r = canvas.getBoundingClientRect();
-  const x = (e.clientX - r.left) * canvas.width / r.width;
-  const y = (e.clientY - r.top) * canvas.height / r.height;
-  return [Math.floor(x / (TILE * 4)), Math.floor(y / (TILE * 4))];
+  const x = (e.clientX - r.left) / r.width * ZOOM;
+  const y = (e.clientY - r.top) / r.height * ZOOM;
+  return [Math.max(0, Math.min(ZOOM - 1, Math.floor(x))), Math.max(0, Math.min(ZOOM - 1, Math.floor(y)))];
 };
 let drag = null, dragMoved = false;
 canvas.addEventListener("pointerdown", (e) => {
@@ -207,21 +266,33 @@ canvas.addEventListener("pointermove", (e) => {
     const dx = drag[0] - cx, dy = drag[1] - cy;
     if (dx || dy) { game().on_pan(dx, dy); dragMoved = true; }
   }
-  game().on_hover(Math.max(0, Math.min(COLS - 1, cx)), Math.max(0, Math.min(ROWS - 1, cy)));
+  game().on_hover(cx, cy);
 });
 canvas.addEventListener("pointerup", (e) => {
-  if (drag && !dragMoved) { // a click, not a drag: act on the armed power
+  if (drag && !dragMoved) { // a click, not a drag
     const [cx, cy] = cellOf(e);
-    game().on_click(Math.max(0, Math.min(COLS - 1, cx)), Math.max(0, Math.min(ROWS - 1, cy)));
+    game().on_click(cx, cy);
   }
   drag = null;
 });
 canvas.addEventListener("pointercancel", () => { drag = null; });
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
-  const sx = Math.sign(e.shiftKey ? e.deltaY : e.deltaX), sy = e.shiftKey ? 0 : Math.sign(e.deltaY);
-  if (sx || sy) game().on_pan(sx, sy);
+  if (e.deltaY) game().on_zoom(Math.sign(e.deltaY));
 }, { passive: false });
+
+// The minimap: a click, or a drag across it, centres the view on that spot.
+const lookAt = (e) => {
+  const r = mini.getBoundingClientRect();
+  const px = Math.max(0, Math.min(999, Math.floor((e.clientX - r.left) / r.width * 1000)));
+  const py = Math.max(0, Math.min(999, Math.floor((e.clientY - r.top) / r.height * 1000)));
+  game().on_minimap(px, py);
+};
+let miniDrag = false;
+mini.addEventListener("pointerdown", (e) => { mini.setPointerCapture(e.pointerId); miniDrag = true; lookAt(e); });
+mini.addEventListener("pointermove", (e) => { if (miniDrag) lookAt(e); });
+mini.addEventListener("pointerup", () => { miniDrag = false; });
+mini.addEventListener("pointercancel", () => { miniDrag = false; });
 
 // Gamepad: d-pad and left stick move the cursor, with repeat while held.
 let padDir = [0, 0], padNext = 0, padHeld = {};
