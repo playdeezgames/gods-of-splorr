@@ -285,7 +285,7 @@ figure {{ margin: 8pt 0 12pt; break-inside: avoid; }} figcaption {{ font-size: 9
 <p>Tools, stone, coats, racks and dried food never spoil. Food in a basket keeps too. People also drop what they carry by chance (2% per action), except tools and food kept for the larder.</p>
 
 <h2>11. The god: faith and powers</h2>
-<p>Faith starts at 50, regenerates 2 per hour, and is capped at 100. Arm a power with its button (or key), then click a map cell.</p>
+<p>Faith starts at 50, regenerates 2 per hour, and is capped at 100. Press a power's number key to cast it at the cursor, or click its button to arm it and then click a map cell.</p>
 <table><tr><th>Power</th><th>Cost</th><th>Effect</th></tr>
 <tr><td>Manna</td><td>10</td><td>Drops a berry on the ground</td></tr>
 <tr><td>Smite Bush</td><td>15</td><td>Scorches a bush away, leaving dirt</td></tr>
@@ -302,6 +302,8 @@ figure {{ margin: 8pt 0 12pt; break-inside: avoid; }} figcaption {{ font-size: 9
 <tr><td>Z / X, mouse wheel</td><td>Zoom in / out (default 15x15 cells, minimum 5)</td></tr>
 <tr><td>F / N</td><td>Follow a person / follow the next person</td></tr>
 <tr><td>Click minimap</td><td>Centre the view there (cropped at the edge)</td></tr>
+<tr><td>1-5</td><td>Cast a miracle at the cursor (or click a miracle button, then the map)</td></tr>
+<tr><td>Space, + / -</td><td>Pause; game speed from 0.25x to 32x</td></tr>
 <tr><td>P</td><td>Show or hide the miracle panel</td></tr>
 <tr><td>M, H, C</td><td>Menu, help blurb, credits (Urizen tileset by vurmux, CC0)</td></tr>
 <tr><td>R or click after game over</td><td>Restart</td></tr></table>
