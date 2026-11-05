@@ -306,7 +306,8 @@ figure {{ margin: 8pt 0 12pt; break-inside: avoid; }} figcaption {{ font-size: 9
 <tr><td>Space, + / -</td><td>Pause; game speed from 0.25x to 32x</td></tr>
 <tr><td>P</td><td>Show or hide the miracle panel</td></tr>
 <tr><td>M, H, C</td><td>Menu, help blurb, credits (Urizen tileset by vurmux, CC0)</td></tr>
-<tr><td>R or click after game over</td><td>Restart</td></tr></table>
+<tr><td>R or click after game over</td><td>Restart</td></tr>
+<tr><td>Gamepad</td><td>The whole game plays from the d-pad and two buttons: the d-pad moves the cursor; A casts the armed miracle at the cursor, follows or lets go of the person there, or begins again after a loss; B opens a command menu (miracles, following, zoom, speed, pause, controls) or disarms a miracle. Bumpers change speed and Start pauses.</td></tr></table>
 <p>The window is a 16:9 stage: the map in the middle, the clock, faith and miracle buttons on the left, the minimap, zoom, follow and menu buttons and the status panel on the right. The URL accepts <code>?day=</code> (real seconds per game day), <code>&amp;dpm=</code>, <code>&amp;mpy=</code>, <code>&amp;lat=</code> and <code>?world=N</code>.</p>
 
 <h2>13. How well does the tribe do? (balance report)</h2>

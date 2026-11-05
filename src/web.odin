@@ -361,7 +361,7 @@ draw :: proc() {
 		cbuf[:],
 		"Year %d, Month %d, Day %d\n%02d:%02d  %s\n%.1f\u00b0C  [%s]\nFaith %.0f",
 		d.year, d.month, d.day, d.hour, d.minute, SEASON_NAMES[d.season],
-		temperature_c(game.clock, game.cfg), speed, game.faith,
+		temperature_c(game.clock, game.cfg), speed, math.floor(game.faith), // rounded down: "30" must mean a 30-faith miracle can be afforded
 	)
 	set_clock(raw_data(cs), i32(len(cs)))
 
@@ -488,6 +488,13 @@ on_click :: proc "c" (view_x, view_y: i32) {
 	} else if i := person_at(&game, game.cursor_x, game.cursor_y); i >= 0 { // clicking a person follows them
 		follow_person(&game, game.people[i].id)
 	}
+}
+
+// The gamepad's A button (see act_at_cursor).
+@(export)
+on_act :: proc "c" () {
+	context = ctx
+	act_at_cursor(&game)
 }
 
 // A click on the minimap, as thousandths across and down it: centre the view there.

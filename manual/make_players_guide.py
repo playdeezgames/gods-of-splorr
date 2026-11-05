@@ -70,11 +70,17 @@ code {{ font-family: Menlo, monospace; font-size: 9.5pt; background:#f0f0f0; pad
 <tr><td><kbd>P</kbd></td><td>Miracles button</td><td>Show or hide the miracle buttons</td></tr>
 <tr><td><kbd>M</kbd>, <kbd>H</kbd> or <kbd>C</kbd></td><td>Menu button</td><td>Controls and credits</td></tr>
 <tr><td><kbd>R</kbd></td><td>Click</td><td>Begin again once everyone is dead</td></tr></table>
-<p><b>Gamepad:</b> the d-pad or left stick moves the cursor, the bumpers change speed, Start pauses, X, Y and B are Manna, Smite and Snake, and A begins again after a loss.</p>
+<h3>Playing with a gamepad</h3>
+<p>The whole game plays from the d-pad (or left stick) and two buttons:</p>
+<table><tr><th>Button</th><th>Does</th></tr>
+<tr><td>D-pad</td><td>Moves the cursor (hold it to keep moving). In the command menu, picks a line.</td></tr>
+<tr><td>A</td><td>Acts at the cursor: casts the armed miracle there; otherwise follows the person under the cursor, or lets go of the one you are following. After a loss, begins again. In the command menu, runs the chosen line.</td></tr>
+<tr><td>B</td><td>Opens the command menu, or disarms an armed miracle. In the menu, closes it.</td></tr></table>
+<p>The command menu lists the five miracles (choosing one arms it, ready for A), follow someone or the next person, stop following, zoom in and out, faster and slower, pause, and the controls and credits. Zoom and speed leave the menu open, so you can press A again. While you follow someone the cursor stays on them, so A or an armed miracle acts on that person. As shortcuts, the bumpers change speed and Start pauses.</p>
 <p>At normal speed (1x) a game day takes 24 real minutes, so an hour passes every minute. Speed it up to watch a season go by, and slow down or pause when something needs your attention.</p>
 
 <h2>Miracles</h2>
-<p>Faith starts at 50, refills by 2 every game hour and holds at most 100. There are two ways to cast one: put the cursor on a cell and press the miracle's number key, or click its button to arm it (the button lights up) and then click the cell. An armed miracle stays armed, so every click casts it again until you click the button again or press <kbd>Esc</kbd>. A miracle with nothing to act on (Smite on an empty cell, say) costs nothing and does nothing.</p>
+<p>Faith starts at 50, refills by 2 every game hour and holds at most 100. There are two ways to cast one: put the cursor on a cell and press the miracle's number key, or click its button to arm it (the button lights up) and then click the cell. An armed miracle stays armed, so every click casts it again until you click the button again or press <kbd>Esc</kbd>. On a gamepad, press B, choose the miracle, then move the cursor and press A; B disarms it. A miracle with nothing to act on (Smite on an empty cell, say) costs nothing and does nothing.</p>
 {shot("armed.png", "Miracle Bush armed (the lit button): the next click on the map grows one there.")}
 <table><tr><th>Key</th><th>Miracle</th><th>Faith</th><th>What it does</th></tr>
 <tr><td><kbd>1</kbd></td><td>Manna</td><td>10</td><td>Drops a berry on any open cell. Cheap and quick: drop it beside someone starving.</td></tr>

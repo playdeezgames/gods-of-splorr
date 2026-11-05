@@ -37,6 +37,13 @@
   #menu .keys { text-align: left; display: inline-block; font-size: .9em; }
   #menu a { color: #aaa; }
   #menu small { opacity: .6; }
+  /* The gamepad's command menu (B): a list picked with the d-pad and A. */
+  #padmenu { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; min-width: 40%; background: rgba(5, 10, 5, .94); border: 1px solid var(--gold); border-radius: 4px; padding: .5em 0; font-size: 1.3em; }
+  #padmenu.open { display: block; }
+  #padmenu div { padding: .2em 1.2em; white-space: nowrap; }
+  #padmenu div.sel { background: #2a4a1a; color: var(--gold); }
+  #padmenu div.off { opacity: .4; }
+  #padmenu small { display: block; padding: .3em 1.2em 0; opacity: .6; font-size: .7em; }
   footer { font-size: 12px; text-align: center; max-width: 90vw; opacity: .7; }
   footer a { color: #aaa; }
 </style>
@@ -51,6 +58,7 @@
   <div id="center">
     <canvas id="c" width="720" height="720"></canvas>
     <div id="over"></div>
+    <div id="padmenu"></div>
   </div>
   <div class="side" id="right">
     <canvas id="mini" width="256" height="256" title="Click to look there"></canvas>
@@ -75,16 +83,18 @@
       Click the minimap: look there<br>
       Z / X: zoom in / out &middot; N: follow the next person<br>
       Space: pause &middot; + / -: game speed<br>
-      1-5 or the buttons: miracles (click a button, then the map)<br>
+      1-5: cast a miracle at the cursor, or click its button, then the map<br>
       P: show or hide the miracles &middot; R: begin again after a loss<br>
       M or H or C: this menu &middot; Esc: close it<br>
-      Gamepad: d-pad / stick, bumpers speed, Start pause, X/Y/B miracles
+      Gamepad: d-pad moves the cursor &middot; A: cast the armed miracle, follow the person<br>
+      under the cursor, or begin again &middot; B: the command menu (miracles, follow, zoom,<br>
+      speed, pause), or disarm a miracle &middot; also bumpers: speed, Start: pause
     </div>
     <h3>Credits</h3>
     <div>Code and design: the developer, with Claude, an AI agent</div>
     <div>Tiles: <a href="https://vurmux.itch.io/urizen-onebit-tileset" target="_blank" rel="noopener">Urizen 1-bit tileset</a> v2.0 by vurmux (CC0)</div>
     <div>Built with Odin, running as WebAssembly</div>
-    <br><small>Click anywhere or press Esc to close</small>
+    <br><small>Click anywhere, or press Esc or a gamepad button, to close</small>
   </div></div>
 </div>
 <footer>
@@ -237,7 +247,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "n") { game().on_follow_next(); return; }
   if (e.key >= "1" && e.key <= "5") { game().on_power(Number(e.key) - 1); return; }
   if (k === "r") { game().on_restart(); return; }
-  if (e.key === "Escape") { toggleMenu(false); game().on_disarm(); return; }
+  if (e.key === "Escape") { toggleMenu(false); openPadMenu(false); game().on_disarm(); return; }
   if (e.key === " ") { e.preventDefault(); game().on_pause(); return; }
   if (e.key === "+" || e.key === "=" || e.key === "]") { game().on_speed(1); return; }
   if (e.key === "-" || e.key === "_" || e.key === "[") { game().on_speed(-1); return; }
@@ -294,7 +304,72 @@ mini.addEventListener("pointermove", (e) => { if (miniDrag) lookAt(e); });
 mini.addEventListener("pointerup", () => { miniDrag = false; });
 mini.addEventListener("pointercancel", () => { miniDrag = false; });
 
-// Gamepad: d-pad and left stick move the cursor, with repeat while held.
+// Gamepad: the whole game plays from the d-pad (or left stick) and two buttons. The d-pad moves the
+// cursor; A acts at the cursor (casts the armed miracle, follows a person, begins again after a loss);
+// B opens the command menu, or disarms a miracle. In the menu the d-pad picks a line, A runs it and B
+// closes it. The bumpers (speed) and Start (pause) are shortcuts.
+const padMenuEl = document.getElementById("padmenu");
+let padItems = [], padSel = 0;
+const padMenuOpen = () => padMenuEl.classList.contains("open");
+const armedPower = () => [...powersEl.children].findIndex((b) => b.classList.contains("armed"));
+function padMenuItems() {
+  const items = [...powersEl.children].map((b, i) => ({
+    label: b.textContent + (i === armedPower() ? "  (armed)" : ""),
+    off: b.disabled, run: () => game().on_arm(i),
+  }));
+  const following = followBtn.classList.contains("on");
+  const paused = clockEl.textContent.includes("[paused]");
+  items.push(
+    { label: following ? "Follow the next person" : "Follow someone", run: () => game().on_follow_next() },
+    ...(following ? [{ label: "Stop following", run: () => game().on_follow() }] : []),
+    { label: "Zoom in", stay: true, run: () => game().on_zoom(-1) },
+    { label: "Zoom out", stay: true, run: () => game().on_zoom(1) },
+    { label: "Faster", stay: true, run: () => game().on_speed(1) },
+    { label: "Slower", stay: true, run: () => game().on_speed(-1) },
+    { label: paused ? "Resume" : "Pause", run: () => game().on_pause() },
+    { label: "Controls and credits", run: () => toggleMenu(true) },
+  );
+  return items;
+}
+function drawPadMenu() {
+  padItems = padMenuItems();
+  padSel = Math.max(0, Math.min(padItems.length - 1, padSel));
+  padMenuEl.innerHTML = "";
+  padItems.forEach((it, i) => {
+    const d = document.createElement("div");
+    d.textContent = it.label;
+    if (i === padSel) d.className = "sel";
+    if (it.off) d.className += " off";
+    padMenuEl.appendChild(d);
+  });
+  const hint = document.createElement("small");
+  hint.textContent = "A: choose  B: close";
+  padMenuEl.appendChild(hint);
+}
+const openPadMenu = (on) => { padMenuEl.classList.toggle("open", on); if (on) drawPadMenu(); };
+function padPress(button) {
+  if (stageEl.classList.contains("show-menu")) { toggleMenu(false); return; }
+  if (padMenuOpen()) {
+    if (button === "b") { openPadMenu(false); return; }
+    const it = padItems[padSel];
+    if (!it || it.off) return;
+    it.run();
+    if (it.stay) drawPadMenu(); else openPadMenu(false);
+    return;
+  }
+  if (button === "a") game().on_act();
+  else if (armedPower() >= 0) game().on_disarm();
+  else openPadMenu(true);
+}
+function padDirection(dx, dy) {
+  if (stageEl.classList.contains("show-menu")) return;
+  if (padMenuOpen()) {
+    if (dy) { padSel = (padSel + dy + padItems.length) % padItems.length; drawPadMenu(); }
+    return;
+  }
+  game().on_move(dx, dy);
+}
+
 let padDir = [0, 0], padNext = 0, padHeld = {};
 function pollPad(now) {
   requestAnimationFrame(pollPad);
@@ -304,19 +379,19 @@ function pollPad(now) {
     const b = (i) => p.buttons[i] && p.buttons[i].pressed;
     if (b(14) || p.axes[0] < -0.5) dx = -1;
     if (b(15) || p.axes[0] > 0.5) dx = 1;
-    for (const [i, act] of [[5, () => game().on_speed(1)], [4, () => game().on_speed(-1)], [9, () => game().on_pause()], [0, () => game().on_restart()], [2, () => game().on_power(0)], [3, () => game().on_power(1)], [1, () => game().on_power(2)]]) {
+    if (b(12) || p.axes[1] < -0.5) dy = -1;
+    if (b(13) || p.axes[1] > 0.5) dy = 1;
+    for (const [i, act] of [[0, () => padPress("a")], [1, () => padPress("b")], [5, () => game().on_speed(1)], [4, () => game().on_speed(-1)], [9, () => game().on_pause()]]) {
       if (b(i) && !padHeld[i]) act();
       padHeld[i] = b(i);
     }
-    if (b(12) || p.axes[1] < -0.5) dy = -1;
-    if (b(13) || p.axes[1] > 0.5) dy = 1;
   }
   if (!dx && !dy) { padDir = [0, 0]; return; }
   const fresh = dx !== padDir[0] || dy !== padDir[1];
   if (fresh || now >= padNext) {
     padNext = now + (fresh ? 300 : 90);
     padDir = [dx, dy];
-    game().on_move(dx, dy);
+    padDirection(dx, dy);
   }
 }
 requestAnimationFrame(pollPad);

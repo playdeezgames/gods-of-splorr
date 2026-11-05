@@ -232,6 +232,18 @@ follow_person :: proc(g: ^Game, id: int) {
 	g.following = id
 }
 
+// The one action button (a gamepad's A): begin again after a loss, cast the armed miracle at the
+// cursor, or else follow the person under the cursor, or stop following them.
+act_at_cursor :: proc(g: ^Game) {
+	if game_over(g) {
+		restart_game(g)
+	} else if power, ok := g.armed.?; ok {
+		use_power(g, power)
+	} else if i := person_at(g, g.cursor_x, g.cursor_y); i >= 0 {
+		follow_person(g, 0 if g.following == g.people[i].id else g.people[i].id)
+	}
+}
+
 // Index of the person being followed, or -1 (and the follow is dropped if they are gone).
 followed_index :: proc(g: ^Game) -> int {
 	if g.following == 0 {return -1}
@@ -244,8 +256,9 @@ followed_index :: proc(g: ^Game) -> int {
 
 // Keep the view on the followed person; called every frame.
 update_follow :: proc(g: ^Game) {
-	if i := followed_index(g); i >= 0 {
+	if i := followed_index(g); i >= 0 { // the cursor rides on them too, so a miracle or the action button acts on them
 		center_camera(g, g.people[i].x, g.people[i].y)
+		g.cursor_x, g.cursor_y = g.people[i].x, g.people[i].y
 	}
 }
 // Scroll the camera the minimum amount that keeps the cursor on screen.

@@ -201,3 +201,39 @@ a_damaged_bush_with_health_left_survives_and_mends :: proc(t: ^testing.T) {
 	update_bushes(&g)
 	testing.expect_value(t, g.bushes[2].health, f32(BUSH_MAX_HEALTH))
 }
+
+@(test)
+the_action_button_follows_casts_and_restarts :: proc(t: ^testing.T) {
+	rand.reset(614)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	p := g.people[0]
+	g.cursor_x, g.cursor_y = p.x, p.y
+	act_at_cursor(&g)
+	testing.expect_value(t, g.following, p.id)
+	act_at_cursor(&g)
+	testing.expect_value(t, g.following, 0) // pressed again: stop following
+	g.armed = Power.Smite
+	g.faith = MAX_FAITH
+	people := len(g.people)
+	act_at_cursor(&g)
+	testing.expect_value(t, len(g.people), people - 1) // the armed miracle is cast at the cursor
+	for len(g.people) > 0 {kill_person(&g, 0, .Smitten)}
+	act_at_cursor(&g)
+	testing.expect(t, !game_over(&g), "began again")
+}
+
+@(test)
+following_someone_keeps_the_cursor_on_them :: proc(t: ^testing.T) {
+	rand.reset(615)
+	g: Game
+	game_init(&g, WORLD_SIZE)
+	defer game_destroy(&g)
+	follow_person(&g, g.people[1].id)
+	g.people[1].x = clamp(g.people[1].x + 3, 0, g.width - 1)
+	update_follow(&g)
+	testing.expect(t, g.cursor_x == g.people[1].x && g.cursor_y == g.people[1].y, "cursor on them")
+	act_at_cursor(&g)
+	testing.expect_value(t, g.following, 0) // the action button on the one being followed lets them go
+}
