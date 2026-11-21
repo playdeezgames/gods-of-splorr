@@ -98,10 +98,20 @@
   </div></div>
 </div>
 <footer>
-  <a href="https://thegrumpygamedev.itch.io/">itch.io</a> &middot; <a href="https://playdeezgames.github.io/oeuvre-of-splorr/">more games</a>
+  Gods of SPLORR!! by TheGrumpyGameDev. Code made by an AI agent (Claude Code) at the author's direction.
+  Tiles: Urizen by vurmux (CC0). Feedback by LootLocker.
+  <a href="#" id="feedback-link">Send feedback</a> &middot; <a href="https://thegrumpygamedev.itch.io/">itch.io</a> &middot; <a href="https://playdeezgames.github.io/oeuvre-of-splorr/">more games</a>
 </footer>
 <script src="odin.js"></script>
+<script src="lootlocker.js"></script>
 <script>
+// Feedback through the shared SPLORR!! LootLocker kit. The LootLocker game is not set up yet (the user's
+// console setup: Guest Login, CORS Allowlist, a Game feedback category); until domain and key are filled
+// in, the form opens but cannot send. No key opens it (F is Follow); the footer link does.
+const ll = LootLocker({ domain: "", key: "", version: "0.0.1", idKey: "gods-ll-player" });
+const feedback = ll.feedbackDialog({ game: "Gods of SPLORR!!" });
+document.getElementById("feedback-link").addEventListener("click", (e) => { e.preventDefault(); feedback.open(); });
+
 const TILE = 12, GAP = 13;
 const canvas = document.getElementById("c");
 const mini = document.getElementById("mini");
@@ -373,6 +383,7 @@ function padDirection(dx, dy) {
 let padDir = [0, 0], padNext = 0, padHeld = {};
 function pollPad(now) {
   requestAnimationFrame(pollPad);
+  if (feedback.isOpen) return; // the feedback form has the keyboard; leave the game alone
   let dx = 0, dy = 0;
   for (const p of navigator.getGamepads ? navigator.getGamepads() : []) {
     if (!p) continue;
